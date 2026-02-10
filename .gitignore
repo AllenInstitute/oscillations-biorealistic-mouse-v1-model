@@ -1,0 +1,20 @@
+._*
+~*
+*~
+.DS_Store
+.snakemake
+biorealistic-v1-model*/
+V1_GLIF_model*/
+*.err
+*.out
+eLife_Atle_paper/
+figs/
+h5browser
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+# Built Visual Studio Code Extensions
+*.vsix
