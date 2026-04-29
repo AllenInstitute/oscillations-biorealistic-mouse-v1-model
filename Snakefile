@@ -1,15 +1,68 @@
 import os
+import re
 
 main_scripts = ["build_network.py", "edge_funcs.py", "node_funcs.py"]
+
+# ============================================================
+# Model variants
+# Each corresponds to a biorealistic-v1-model-<suffix> directory
+# whose base_props/ has been copied here as base_props_<suffix>/
+# ============================================================
+model_variants = [
+    "i4Pvalb-like-i4Sst",
+    "i4Sst-like-i4Pvalb",
+    "L4-cell-density-as-L6",
+    "L4-cell-vol-dens-conn-as-L6",
+    "L4-cell-volume-density-as-L6",
+    "L4-connectivity-as-L6",
+    "L4-e2e-syn-as-L6",
+    "L4-e2i-syn-as-L6",
+    "L4-i2e-syn-as-L6",
+    "L4-Pvalb2e-as-L6",
+    "L4-Pvalb2e-syn-lat-as-L6",
+    "L4-Pvalb2e-syn-tau-amp-as-L6",
+    "L4-Sst2e-as-L6",
+    "L4-Sst2e-syn-lat-as-L6",
+    "L4-Sst2e-syn-tau-amp-as-L6",
+    "L4-syn-as-L6-syn",
+    "L4-syn-PSP-as_L6",
+    "L4-syn-weights-as-L6",
+    "L4-Vip2e-syn-lat-as-L6",
+    "L4-Vip2e-syn-tau-amp-as-L6",
+    "L4-weights-as-L6",
+    "L6-as-L4",
+    "L6-syn-as-L4-syn",
+    "L6-syn-as-L4-syn-PSP",
+    "L6-syn-as-L4-syn-v2",
+    "L6-syn-as-L4-syn-v3",
+    "PV-like-Sst",
+    "PV-syn-like-Sst-syn",
+    "Sst-like-PV",
+]
+
+# ============================================================
+# Variant configuration  (set via --config model_variant=NAME)
+#   snakemake --config model_variant=i4Pvalb-like-i4Sst all_cores
+# Leave unset (or empty string) to use the default base_props/.
+# ============================================================
+model_variant = config.get("model_variant", "")
+base_props_dir = f"base_props_{model_variant}" if model_variant else "base_props"
+vp = f"{model_variant}_" if model_variant else ""   # prefix for all variant output dirs
+setup_deps = [f".base_props_{model_variant}_setup"] if model_variant else []
+
+
+# ============================================================
+# Build-phase input files (parameterised by active variant)
+# ============================================================
 build_files = [
-    "base_props/lgn_weights_population.csv",
-    "base_props/lgn_params.csv",
-    "base_props/lgn_models.csv",
+    f"{base_props_dir}/lgn_weights_population.csv",
+    f"{base_props_dir}/lgn_params.csv",
+    f"{base_props_dir}/lgn_models.csv",
     "glif_props/v1_node_models.csv",
     "glif_props/v1_edge_models.csv",
     "glif_props/lgn_weights_model.csv",
     "glif_props/bkg_weights_model.csv",
-    "glif_models/cell_models/313861608_glif_lif_asc_config.json" # representative model
+    "glif_models/cell_models/313861608_glif_lif_asc_config.json"  # representative
 ]
 
 config_files = [
@@ -83,13 +136,9 @@ network_files = [
 network_files = [f"/network/{file}" for file in network_files]
 
 # drop bkg_v1_edge_types.csv because it will be overridden.
-# print(network_files)
 network_files = network_files[:6] + network_files[7:]
-# print(network_files)
 
-
-
-filter_files = [network_files[2], network_files[3]] # just lgn nodes
+filter_files = [network_files[2], network_files[3]]  # just lgn nodes
 
 
 networks = {
@@ -107,33 +156,33 @@ networks = {
         "radius": 200.0,
         "core_radius": 100.0,
         "other_options": "--small-lgn",
-        "memory": 10  # GB, to run on HPC
+        "memory": 10
     },
     "core": {
         "radius": 400.0,
         "core_radius": 200.0,
-        "memory": 20  # GB, to run on HPC
+        "memory": 20
     },
     "core_nll": {
         "radius": 400.0,
         "core_radius": 200.0,
-        "memory": 20,  # GB, to run on HPC
+        "memory": 20,
         "other_options": "-nll"
     },
     "full": {
         "radius": 700.0,
         "core_radius": 400.0,
-        "memory": 80  # GB, to run on HPC
+        "memory": 80
     },
     "full_nll": {
         "radius": 700.0,
         "core_radius": 400.0,
-        "memory": 80,  # GB, to run on HPC
+        "memory": 80,
         "other_options": "-nll"
     }
 }
 
-# let's make 10 core networks in addition
+# 10 randomised core networks (default)
 for i in range(10):
     networks[f"core_{i}"] = {
         "radius": 400.0,
@@ -150,39 +199,199 @@ for i in range(10):
         "other_options": "--fluctuate-nneu -nll"
     }
 
+# Add variant networks: {variant}_core_{i} and {variant}_core_nll_{i}
+# These are always registered so multi-variant aggregate rules can reference them.
+for variant in model_variants:
+    for i in range(10):
+        networks[f"{variant}_core_{i}"] = {
+            "radius": 400.0,
+            "core_radius": 200.0,
+            "memory": 20,
+            "seed": i * 1000,
+            "other_options": "--fluctuate-nneu",
+            "model_variant": variant,
+        }
+        networks[f"{variant}_core_nll_{i}"] = {
+            "radius": 400.0,
+            "core_radius": 200.0,
+            "memory": 20,
+            "seed": i * 1000,
+            "other_options": "--fluctuate-nneu -nll",
+            "model_variant": variant,
+        }
+
+# Apply variant prefix to the current session's default network set
+# so that running with --config model_variant=X prefixes all standard targets.
+if vp:
+    _base_networks = {k: v for k, v in networks.items()
+                      if not v.get("model_variant")}
+    _prefixed = {f"{vp}{k}": {**v, "model_variant": model_variant}
+                 for k, v in _base_networks.items()}
+    networks.update(_prefixed)
+
+
+def _get_model_variant(network_name):
+    return networks.get(network_name, {}).get("model_variant", "")
+
+
+def _get_base_props(network_name):
+    v = _get_model_variant(network_name)
+    return f"base_props_{v}" if v else "base_props"
+
+
+def _get_build_files(network_name):
+    """Return the build-phase input files for a given network name."""
+    bp = _get_base_props(network_name)
+    return [
+        f"{bp}/lgn_weights_population.csv",
+        f"{bp}/lgn_params.csv",
+        f"{bp}/lgn_models.csv",
+        "glif_props/v1_node_models.csv",
+        "glif_props/v1_edge_models.csv",
+        "glif_props/lgn_weights_model.csv",
+        "glif_props/bkg_weights_model.csv",
+        "glif_models/cell_models/313861608_glif_lif_asc_config.json",
+    ]
+
+
+def _get_synaptic_model(network_name):
+    """Return the synaptic model source path for a given network."""
+    return "glif_models/synaptic_models/e4_to_e4.json"
+
+
+# Precompute wildcard constraint patterns (avoids generator expressions in the
+# wildcard_constraints block, which some Snakemake versions reject).
+_network_name_constraint = "|".join(re.escape(k) for k in networks.keys())
+_network_option_constraint = "|".join(network_options)
+_model_variant_constraint = "|".join(re.escape(v) for v in model_variants)
 
 # only include available ones
 wildcard_constraints:
-    # network_name = "^(?!neuropixels$).+",
-    # network_option = "^(?!data$).+"
-    network_name = "|".join(networks.keys()),
-    network_option = "|".join(network_options)
+    network_name = _network_name_constraint,
+    network_option = _network_option_constraint,
+    mv = _model_variant_constraint
 
 
 n_threads = 4
 
-# rule to make all the core networks
+
+# ============================================================
+# Variant setup rule: creates base_props symlink so scripts that
+# hard-code "base_props/" pick up the correct variant files.
+# Triggered automatically when a variant network is requested.
+# ============================================================
+rule setup_base_props:
+    output: ".base_props_{mv}_setup"
+    shell: "ln -sfn base_props_{wildcards.mv} base_props && touch {output}"
+
+
+# ============================================================
+# Pre-computed expand lists
+# Snakemake 9.x rejects expand() with keyword arguments inside rule bodies;
+# pre-compute them here as plain Python variables instead.
+# ============================================================
+_rcorr_inputs = expand(
+    vp + "core_nll_{i}/figures/response_correlation_{input_type}.png",
+    i=range(10), input_type=network_options_1)
+_contrast_inputs = expand(
+    vp + "core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    i=range(10), input_type=network_options_1)
+_contrast_notf_inputs = expand(
+    vp + "core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    i=range(10), input_type=["plain", "adjusted"])
+_rasters_inputs = expand(
+    vp + "core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    i=range(10), input_type=network_options_2)
+_rasters_notf_inputs = expand(
+    vp + "core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    i=range(10), input_type=["plain", "adjusted"])
+_odsi_inputs = expand(
+    vp + "core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    i=range(10), input_type=network_options_1)
+_odsi_notf_inputs = expand(
+    vp + "core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    i=range(10), input_type=["plain", "adjusted"])
+_core_nlls_plot_inputs = expand(
+    vp + "core_nll_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png",
+    i=range(10))
+_cores_inputs = expand(vp + "core_{i}/output_adjusted/spikes.h5", i=range(10))
+_cores_plot_inputs = expand(
+    vp + "core_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png",
+    i=range(10))
+_agg_rcorr_inputs = expand(
+    vp + "aggregated_response_correlation/{input_type}.png",
+    input_type=network_options_1)
+_lifetime_sparsity_inputs = expand(
+    vp + "core_nll_{i}/metrics/lifetime_sparsity_{input_type}.npy",
+    i=range(10), input_type=network_options_1)
+_pop_sparsity_inputs = expand(
+    vp + "core_nll_{i}/metrics/population_sparsity_{input_type}.npy",
+    i=range(10), input_type=network_options_1)
+_lifetime_sparsity_outputs = expand(
+    vp + "lifetime_sparsity_core_nll_{i}_{input_type}.png",
+    i=range(10), input_type=network_options_1)
+_spectra_inputs = expand(
+    vp + "core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json",
+    i=range(10), input_type=network_options_1)
+_spectra_figs = expand(
+    vp + "core_nll_{i}/contrasts_{input_type}/figures",
+    i=range(10), input_type=network_options_1)
+_core0_contrast_inputs = expand(
+    vp + "core_nll_0/figures/contrast_responsive_cells_{input_type}.pdf",
+    input_type=network_options_1)
+_core0_rasters_inputs = expand(
+    vp + "core_nll_0/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    input_type=network_options_2)
+_core0_odsi_inputs = expand(
+    vp + "core_nll_0/figures/OSI_DSI_{input_type}.png",
+    input_type=network_options_1)
+_core0_spectra_inputs = expand(
+    vp + "core_nll_0/contrasts_{input_type}/combined_spectra_700to2700.json",
+    input_type=network_options_1)
+_core0_spectra_figs = expand(
+    vp + "core_nll_0/contrasts_{input_type}/figures",
+    input_type=network_options_1)
+_var_rasters_inputs = expand(
+    "{variant}_core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    variant=model_variants, i=range(10), input_type=network_options_2)
+_var_contrast_inputs = expand(
+    "{variant}_core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    variant=model_variants, i=range(10), input_type=network_options_1)
+_var_odsi_inputs = expand(
+    "{variant}_core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    variant=model_variants, i=range(10), input_type=network_options_1)
+_var_spikes_inputs = expand(
+    "{variant}_core_nll_{i}/output_{input_type}/spikes.h5",
+    variant=model_variants, i=range(10), input_type=["plain", "adjusted"])
+_var_spectra_inputs = expand(
+    "{variant}_core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json",
+    variant=model_variants, i=range(10), input_type=network_options_1)
+
+
+# ============================================================
+# Aggregate rules (default variant, prefixed when --config is used)
+# ============================================================
 rule all_cores_nll_response_corr_plot:
-    input: expand("core_nll_{i}/figures/response_correlation_{input_type}.png", i=range(10), input_type=network_options_1)
+    input: _rcorr_inputs
 
 rule all_cores_nll_contrast_plot:
-    input: expand("core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf", i=range(10), input_type=network_options_1)
+    input: _contrast_inputs
 
 rule all_cores_nll_contrast_plot_notf:
-    input: expand("core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf", i=range(10), input_type=["plain", "adjusted"])
+    input: _contrast_notf_inputs
 
 rule all_cores_nll_rasters:
-    input: expand("core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png", i=range(10), input_type=network_options_2)
+    input: _rasters_inputs
 
 rule all_cores_nll_rasters_notf:
-    input: expand("core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png", i=range(10), input_type=["plain", "adjusted"])
-    
+    input: _rasters_notf_inputs
+
 rule all_core_nll_odsi_plots:
-    input: expand("core_nll_{i}/figures/OSI_DSI_{input_type}.png", i=range(10), input_type=network_options_1)
+    input: _odsi_inputs
 
 rule all_core_nll_odsi_plots_notf:
-    input: expand("core_nll_{i}/figures/OSI_DSI_{input_type}.png", i=range(10), input_type=["plain", "adjusted"])
-    
+    input: _odsi_notf_inputs
+
 rule all_cores_notf:
     input:
         rules.all_cores_nll_contrast_plot_notf.input,
@@ -193,22 +402,22 @@ rule all_cores_all:
     input:
         rules.all_cores_nll_contrast_plot.input,
         rules.all_cores_nll_rasters.input,
-        rules.all_core_nll_odsi_plots.input,
+        rules.all_core_nll_odsi_plots.input
 
 rule all_core_nlls_plot:
-    input: expand("core_nll_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png", i=range(10))
+    input: _core_nlls_plot_inputs
 
 rule all_cores:
-    input: expand("core_{i}/output_adjusted/spikes.h5", i=range(10))
+    input: _cores_inputs
 
 rule all_cores_plot:
-    input: expand("core_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png", i=range(10))
+    input: _cores_plot_inputs
 
 rule all:
-    input: "small/figures/OSI_DSI.png"
+    input: f"{vp}small/figures/OSI_DSI.png"
 
 rule core_spikes:
-    input: "core/output_adjusted/spikes.h5"
+    input: f"{vp}core/output_adjusted/spikes.h5"
 
 rule clean:
     shell:
@@ -225,14 +434,19 @@ rule clean:
         rm -rf out.prof
         """
 
+
+# ============================================================
+# Preprocessing / intermediate rules
+# ============================================================
+
 rule tf_alpha_params:
     input:
         script="extract_tau_syns.py",
         data=[
-            "base_props/tau_syn_fast.csv",
-            "base_props/tau_syn_slow.csv",
-            "base_props/amp_slow.csv",
-        ]
+            f"{base_props_dir}/tau_syn_fast.csv",
+            f"{base_props_dir}/tau_syn_slow.csv",
+            f"{base_props_dir}/amp_slow.csv",
+        ] + setup_deps
     output:
         "tf_props/double_alpha_params.csv",
         "tf_props/double_alpha_params_full.csv",
@@ -249,16 +463,16 @@ rule tf_basis_functions:
         "tf_props/tau_basis.npy",
         "tf_props/basis_function_weights.csv"
     shell: "python {input.script}"
-    
+
 
 rule synaptic_models:
     input:
         script="create_syn_models.py",
         data=[
-            "base_props/tau_syn_fast.csv",
-            "base_props/tau_syn_slow.csv",
-            "base_props/amp_slow.csv",
-        ]
+            f"{base_props_dir}/tau_syn_fast.csv",
+            f"{base_props_dir}/tau_syn_slow.csv",
+            f"{base_props_dir}/amp_slow.csv",
+        ] + setup_deps
     output: "glif_models/synaptic_models/e4_to_e4.json"  # representative model
     shell: "python {input.script}"
 
@@ -272,18 +486,18 @@ rule cells_with_glif_pop_name:
     input:
         script="pick_glif_all.py",
         data=[
-            "base_props/V1model_seed_file.xlsx",
+            f"{base_props_dir}/V1model_seed_file.xlsx",
             "cell_types/glif_explained_variance_ratio.csv"
-        ]
+        ] + setup_deps
     output: "cell_types/cells_with_glif_pop_name.csv"
-    shell: "python {input}"
+    shell: "python {input.script}"
 
 
 rule cell_models:
     input:
         script="prepare_glif_models.py",
         data="cell_types/cells_with_glif_pop_name.csv"
-    output: "glif_models/cell_models/313861608_glif_lif_asc_config.json" # representative model
+    output: "glif_models/cell_models/313861608_glif_lif_asc_config.json"  # representative
     shell: "python {input.script}"
 
 
@@ -300,9 +514,9 @@ rule glif_requirements:
     input:
         script="make_glif_requirements.py",
         data=[
-            "base_props/V1model_seed_file.xlsx",
+            f"{base_props_dir}/V1model_seed_file.xlsx",
             "glif_requisite/glif_models_prop.csv"
-        ]
+        ] + setup_deps
     output: "glif_props/v1_node_models.csv"
     shell: "python {input.script} --double-alpha"
 
@@ -311,16 +525,16 @@ rule v1_edge_model:
     input:
         script="make_v1_edge_models.py",
         data=[
-            "base_props/cell_type_naming_scheme.csv",
+            f"{base_props_dir}/cell_type_naming_scheme.csv",
             "glif_requisite/glif_models_prop.csv",
             "precomputed_props/v1_synapse_amps.json",
-            "base_props/sigma.csv",
-            "base_props/pmax_matrix_v1dd.csv",
-            "base_props/b_ratio.csv",
-            "base_props/psp_lookup_table.csv",
-            "base_props/psp_characterization.csv",
-            "base_props/syn_types_latency.csv"
-        ]
+            f"{base_props_dir}/sigma.csv",
+            f"{base_props_dir}/pmax_matrix_v1dd.csv",
+            f"{base_props_dir}/b_ratio.csv",
+            f"{base_props_dir}/psp_lookup_table.csv",
+            f"{base_props_dir}/psp_characterization.csv",
+            f"{base_props_dir}/syn_types_latency.csv"
+        ] + setup_deps
     output: "glif_props/v1_edge_models.csv"
     shell: "python {input.script}"
 
@@ -329,48 +543,53 @@ rule lgn_weight_model:
     input:
         script="make_lgn_weights.py",
         data=[
-            "base_props/lgn_weights_population.csv",
+            f"{base_props_dir}/lgn_weights_population.csv",
             "glif_props/v1_node_models.csv",
             "precomputed_props/v1_synapse_amps.json"
-        ]
+        ] + setup_deps
     output: "glif_props/lgn_weights_model.csv"
     shell: "python {input.script} --double-alpha"
-    
+
 
 rule bkg_weight_model:
     input:
         script="make_bkg_weights.py",
         data=[
-            "base_props/bkg_weights_population_init.csv",
+            f"{base_props_dir}/bkg_weights_population_init.csv",
             "glif_props/v1_node_models.csv",
             "precomputed_props/v1_synapse_amps.json"
-        ]
+        ] + setup_deps
     output: "glif_props/bkg_weights_model.csv"
     shell: "python {input.script}"
-    
-    
+
+
+# ============================================================
+# Network building rules
+# ============================================================
+
 rule build_network:
     input:
         script=main_scripts,
-        data=build_files
-        # ignore=lambda wildcards: ["glif_props/v1_edge_models.csv", "glif_models/cell_models/313861608_glif_lif_asc_config.json", "gilf_props/bkg_weights_model.csv", "glif_props/v1_node_models.csv", "glif_props/lgn_weights_model.csv"]
+        data=lambda wildcards: _get_build_files(wildcards.network_name)
     output: ["{network_name}" + name for name in network_files]
     threads: n_threads
     params:
-        radius = lambda wildcards: networks[wildcards.network_name]["radius"],
-        core_radius = lambda wildcards: networks[wildcards.network_name]["core_radius"],
-        seed = lambda wildcards: networks[wildcards.network_name].get("seed", 153),
-        other_options = lambda wildcards: networks[wildcards.network_name].get("other_options", "")
+        radius=lambda wildcards: networks[wildcards.network_name]["radius"],
+        core_radius=lambda wildcards: networks[wildcards.network_name]["core_radius"],
+        seed=lambda wildcards: networks[wildcards.network_name].get("seed", 153),
+        other_options=lambda wildcards: networks[wildcards.network_name].get("other_options", "")
     shell:
-        "mpirun -np {n_threads} python {input.script[0]} -f -o {wildcards.network_name}/network --radius {params.radius} --core-radius {params.core_radius} --seed {params.seed} {params.other_options}"
-    
+        "mpirun -np {n_threads} python {input.script[0]} -f "
+        "-o {wildcards.network_name}/network "
+        "--radius {params.radius} --core-radius {params.core_radius} "
+        "--seed {params.seed} {params.other_options}"
+
 
 rule bkg_edges_override:
     input:
         "precomputed_props/bkg_v1_edge_types.csv",
         "{network_name}/network/bkg_nodes.h5",
         "{network_name}/components/synaptic_models/e4_to_e4.json"
-    input:
     output: "{network_name}/network/bkg_v1_edge_types.csv"
     shell: "cp {input[0]} {output}"
 
@@ -383,7 +602,7 @@ rule bkg_spikes:
             "{network_name}/network/bkg_v1_edge_types.csv",
         ]
     output:
-        "{network_name}/bkg/bkg_spikes_250Hz_3s.h5", # representative file
+        "{network_name}/bkg/bkg_spikes_250Hz_3s.h5",
         "{network_name}/bkg/bkg_spikes_250Hz_10s.h5"
     shell: "python {input.script[0]} {wildcards.network_name}"
 
@@ -391,9 +610,9 @@ rule bkg_spikes:
 rule network_synaptic_components:
     input:
         script="convert_models.py",
-        data=[
-            "{network_name}/network/bkg_nodes.h5",
-            "glif_models/synaptic_models/e4_to_e4.json",
+        data=lambda wildcards: [
+            f"{wildcards.network_name}/network/bkg_nodes.h5",
+            _get_synaptic_model(wildcards.network_name),
         ]
     output: "{network_name}/components/synaptic_models/e4_to_e4.json"
     shell: "python {input.script} {wildcards.network_name}"
@@ -407,9 +626,8 @@ rule config_files:
         cp config_templates/*.json {wildcards.network_name}/configs
         ln -s config_adjusted.json {wildcards.network_name}/configs/config.json
     """
-    
 
-# {opt} can be "" or "_bkgtune"
+
 rule filternet_spikes:
     input:
         script="run_filternet.py",
@@ -418,7 +636,7 @@ rule filternet_spikes:
     output: "{network_name}/filternet/spikes.h5"
     threads: n_threads
     shell: "mpirun -np {n_threads} python {input.script} {input.config}"
-    
+
 
 rule filternet_bkgtune_spikes:
     input:
@@ -428,7 +646,7 @@ rule filternet_bkgtune_spikes:
     output: "{network_name}/filternet_bkgtune/spikes.h5"
     threads: n_threads
     shell: "mpirun -np {n_threads} python {input.script} {input.config}"
- 
+
 
 rule output_spikes:
     input:
@@ -439,7 +657,7 @@ rule output_spikes:
         components="{network_name}/components/synaptic_models/e4_to_e4.json",
         data=[
             "{network_name}/filternet/spikes.h5",
-            "{network_name}/bkg/bkg_spikes_250Hz_3s.h5",  # representative file
+            "{network_name}/bkg/bkg_spikes_250Hz_3s.h5",
         ]
     output: "{network_name}/output{run_opt}/spikes.h5"
     threads: n_threads
@@ -531,7 +749,7 @@ rule filternet_osi_job:
         data="{network_name}/configs/config_filternet.json"
     output: "{network_name}/jobs/filternet_8dir_10trials.sh"
     shell: "python {input.script} {wildcards.network_name} --filternet"
-        
+
 
 rule osi_job:
     input:
@@ -551,7 +769,7 @@ rule filternet_contrast_job:
         data="{network_name}/configs/config_filternet.json"
     output: "{network_name}/jobs/filternet_contrasts.sh"
     shell: "python {input.script} {wildcards.network_name} --filternet"
-    
+
 
 rule contrast_job:
     input:
@@ -565,13 +783,14 @@ rule contrast_job:
 
 
 curdir = os.getcwd()
+
 rule run_filternet_osi_job:
     input:
         script="{network_name}/jobs/filternet_8dir_10trials.sh"
     output: "{network_name}/filternet_8dir_10trials/angle0_trial0/spikes.h5"
     params: curdir=curdir
     shell: "ssh hpc-login 'cd {params.curdir}; sbatch --wait {input.script}'"
-    
+
 
 rule run_osi_job:
     input:
@@ -609,7 +828,7 @@ rule contrast_spike_aggregation:
         data="{network_name}/contrasts_{network_option}/angle0_contrast0.05_trial0/spikes.h5"
     output: "{network_name}/contrasts_{network_option}/spike_counts.npz"
     shell: "python {input.script} {wildcards.network_name} {wildcards.network_option}"
-    
+
 rule plot_contrast_response:
     input:
         script="contrast_analysis.py",
@@ -635,24 +854,24 @@ rule plot_odsi:
 
 rule bkg_adjustment:
     input:
-        config="small/output_bkgtune/spikes.h5"
-    output: "small/network/bkg_v1_edge_types_adjusted.csv"
+        config=f"{vp}small/output_bkgtune/spikes.h5"
+    output: f"{vp}small/network/bkg_v1_edge_types_adjusted.csv"
     threads: n_threads
-    shell: """
+    shell: f"""
         python bkg_weight_adjustment.py
-        cp small/network/bkg_v1_edge_types.csv small/network/bkg_v1_edge_types_adjusted.csv
+        cp {vp}small/network/bkg_v1_edge_types.csv {vp}small/network/bkg_v1_edge_types_adjusted.csv
         """
 
 
 rule graph:
     shell: "snakemake --dag | dot -Tpdf > workflow_graph.pdf"
-    
+
 
 rule profile_build:
-    input: ["profile" + name for name in network_files]
+    input: [f"{vp}profile" + name for name in network_files]
     output: "out.prof"
-    shell: "python -m cProfile -o out.prof build_network.py -f -o profile/network --radius 100.0 --core-radius 50.0"
-    
+    shell: f"python -m cProfile -o out.prof build_network.py -f -o {vp}profile/network --radius 100.0 --core-radius 50.0"
+
 
 rule clear_logs:
     shell: "rm */jobs/logs/*"
@@ -707,26 +926,23 @@ rule response_correlation_plot:
         """
         python response_correlation_plot.py {params.base_dir} {params.input_type}
         """
-        
+
 rule aggregate_correlation_plot:
     input:
         script="aggregate_correlation_plot.py",
-        data="core_nll_9/metrics/response_correlations_{input_type}.npy", 
+        data=vp + "core_nll_9/metrics/response_correlations_{input_type}.npy",
     output:
-        "aggregated_response_correlation/{input_type}.png"
+        vp + "aggregated_response_correlation/{input_type}.png"
+    params:
+        vp=vp
     shell:
         """
-        mkdir -p aggregated_response_correlation
-        python {input.script} core_nll_? {wildcards.input_type} aggregated_response_correlation/{wildcards.input_type}.png
+        mkdir -p {params.vp}aggregated_response_correlation
+        python {input.script} {params.vp}core_nll_? {wildcards.input_type} {params.vp}aggregated_response_correlation/{wildcards.input_type}.png
         """
 
-# rule to run all respons_correlation calculations for all networks
 rule all_response_correlation_plots:
-    input:
-        expand("core_nll_{i}/figures/response_correlation_{input_type}.png", i=range(10), input_type=network_options_1),
-        expand("aggregated_response_correlation/{input_type}.png", input_type=network_options_1)
-
-
+    input: _rcorr_inputs + _agg_rcorr_inputs
 
 
 # Rule to calculate sparsity measures
@@ -749,21 +965,16 @@ rule calculate_sparsity:
         python {input.script} --base_dir {params.base_dir} --input_type {params.input_type}
         """
 
-# Rule to run calculate_sparsity for all core_nll_? networks
 rule all_nll_sparsity:
-    input:
-        expand("core_nll_{i}/metrics/lifetime_sparsity_{input_type}.npy", i=range(10), input_type=network_options_1),
-        expand("core_nll_{i}/metrics/population_sparsity_{input_type}.npy", i=range(10), input_type=network_options_1)
+    input: _lifetime_sparsity_inputs + _pop_sparsity_inputs
 
-# Rule to plot population sparsity for all core_nll_? networks
 rule plot_population_sparsity:
-    input:
-        expand("core_nll_{i}/metrics/population_sparsity_{input_type}.npy", i=range(10), input_type=network_options_1)
+    input: _pop_sparsity_inputs
     output:
         "population_sparsity_{input_type}.png"
     params:
         script="plot_sparsity.py",
-        base_dirs=["core_nll_{i}" for i in range(10)],
+        base_dirs=[vp + f"core_nll_{i}" for i in range(10)],
         input_type="{input_type}",
         output_dir="."
     shell:
@@ -771,22 +982,18 @@ rule plot_population_sparsity:
         python {params.script} --base_dirs {params.base_dirs} --input_type {params.input_type} --output_dir {params.output_dir}
         """
 
-# Rule to plot lifetime sparsity for each core_nll_? network
 rule plot_lifetime_sparsity:
-    input:
-        expand("core_nll_{i}/metrics/lifetime_sparsity_{input_type}.npy", i=range(10), input_type=network_options_1)
-    output:
-        expand("lifetime_sparsity_core_nll_{i}_{input_type}.png", i=range(10), input_type=network_options_1)
+    input: _lifetime_sparsity_inputs
+    output: _lifetime_sparsity_outputs
     params:
         script="plot_sparsity.py",
-        base_dirs=["core_nll_{i}" for i in range(10)],
+        base_dirs=[vp + f"core_nll_{i}" for i in range(10)],
         input_type="{input_type}",
         output_dir="."
     shell:
         """
         python {params.script} --base_dirs {params.base_dirs} --input_type {params.input_type} --output_dir {params.output_dir}
         """
-
 
 
 # Rule to run spectral analysis for a single network and input type
@@ -805,7 +1012,6 @@ rule spectral_analysis:
         --n_processes {threads} \
         """
 
-# Rule to generate spectral plots for a single network and input type
 rule spectral_plots:
     input:
         script="spectral_analysis2.py",
@@ -820,68 +1026,91 @@ rule spectral_plots:
         --plot_only
         """
 
-# Rule to run spectral analysis for all core_nll_? networks with all input types
 rule all_spectral_analysis:
-    input:
-        expand("core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json", 
-              i=range(10), input_type=network_options_1)
+    input: _spectra_inputs
 
-# Rule to generate spectral plots for all core_nll_? networks with all input types
 rule all_spectral_plots:
-    input:
-        expand("core_nll_{i}/contrasts_{input_type}/figures", 
-              i=range(10), input_type=network_options_1)
+    input: _spectra_figs
 
-# Rule to aggregate spectral analysis from all networks
 rule aggregate_spectra:
     input:
         script="aggregate_spectra.py",
-        data=expand("core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json", 
-                    i=range(10), input_type=network_options_1)
+        data=_spectra_inputs
     output:
-        directory("aggregate_spectra")
+        directory(vp + "aggregate_spectra")
+    params:
+        base_dirs=" ".join([vp + f"core_nll_{i}" for i in range(10)])
     shell:
         """
         python {input.script} \
-        --base_dirs core_nll_0 core_nll_1 core_nll_2 core_nll_3 core_nll_4 core_nll_5 core_nll_6 core_nll_7 core_nll_8 core_nll_9 \
+        --base_dirs {params.base_dirs} \
         --input_types plain bio_trained naive adjusted \
         --output_dir {output}
         """
 
-# Rule to generate normalized aggregate plots
 rule aggregate_spectra_normalized:
     input:
         script="aggregate_spectra.py",
-        data=expand("core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json", 
-                    i=range(10), input_type=network_options_1)
+        data=_spectra_inputs
     output:
-        directory("aggregate_spectra_normalized")
+        directory(vp + "aggregate_spectra_normalized")
+    params:
+        base_dirs=" ".join([vp + f"core_nll_{i}" for i in range(10)])
     shell:
         """
         python {input.script} \
-        --base_dirs core_nll_0 core_nll_1 core_nll_2 core_nll_3 core_nll_4 core_nll_5 core_nll_6 core_nll_7 core_nll_8 core_nll_9 \
+        --base_dirs {params.base_dirs} \
         --input_types plain bio_trained naive adjusted \
         --output_dir {output} \
         --normalized
         """
 
-# Rule for all spectral analysis tasks
 rule all_spectral:
     input:
         rules.all_spectral_analysis.input,
         rules.all_spectral_plots.input,
         rules.aggregate_spectra.output,
-        # rules.aggregate_spectra_normalized.output
 
-# Rule to run all analysis for core_nll_0
 rule all_core_nll_0_all:
     input:
-        expand("core_nll_0/figures/contrast_responsive_cells_{input_type}.pdf", input_type=network_options_1),
-        expand("core_nll_0/output_{input_type}/raster_and_spectra_by_tuning_angle.png", input_type=network_options_2),
-        expand("core_nll_0/figures/OSI_DSI_{input_type}.png", input_type=network_options_1),
-        # Add other relevant outputs for network 0 if needed, for example:
-        # expand("core_nll_0/figures/response_correlation_{input_type}.png", input_type=network_options_1),
-        # expand("core_nll_0/metrics/lifetime_sparsity_{input_type}.npy", input_type=network_options_1),
-        # expand("core_nll_0/metrics/population_sparsity_{input_type}.npy", input_type=network_options_1),
-        expand("core_nll_0/contrasts_{input_type}/combined_spectra_700to2700.json", input_type=network_options_1),
-        expand("core_nll_0/contrasts_{input_type}/figures", input_type=network_options_1),
+        _core0_contrast_inputs +
+        _core0_rasters_inputs +
+        _core0_odsi_inputs +
+        _core0_spectra_inputs +
+        _core0_spectra_figs
+
+
+# ============================================================
+# Multi-variant aggregate rules
+# Use these to check or gather outputs across ALL model variants.
+# NOTE: Each variant's outputs must be built separately via
+#   snakemake --config model_variant=VARIANT <target>
+# before these rules can find them.
+# ============================================================
+
+rule all_variants_cores_nll_rasters:
+    """Raster plots for all 10 seeds across every model variant."""
+    input: _var_rasters_inputs
+
+rule all_variants_cores_nll_contrast_plots:
+    """Contrast response plots for all seeds across every model variant."""
+    input: _var_contrast_inputs
+
+rule all_variants_core_nll_odsi_plots:
+    """OSI/DSI plots for all seeds across every model variant."""
+    input: _var_odsi_inputs
+
+rule all_variants_cores_nll_spikes:
+    """Spike outputs for all seeds across every model variant (plain + adjusted)."""
+    input: _var_spikes_inputs
+
+rule all_variants_spectral_analysis:
+    """Spectral analysis for all seeds across every model variant."""
+    input: _var_spectra_inputs
+
+rule all_variants_all:
+    """Run all primary analyses for every model variant."""
+    input:
+        rules.all_variants_cores_nll_contrast_plots.input,
+        rules.all_variants_cores_nll_rasters.input,
+        rules.all_variants_core_nll_odsi_plots.input,
