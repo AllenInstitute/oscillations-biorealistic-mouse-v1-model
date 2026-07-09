@@ -45,6 +45,10 @@ tf_props/*
 base_props_deprecated/*
 connection_params_for_v1DD/*
 
+# managed symlink -> base_props_default (or base_props_<variant>); recreated by Snakemake
+/base_props
+.base_props_*_setup
+
 aggregate_spectra*/
 weight_comparison*/
 weight_analysis*/

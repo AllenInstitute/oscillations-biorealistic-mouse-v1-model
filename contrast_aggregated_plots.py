@@ -385,7 +385,8 @@ if __name__ == "__main__":
     if args.basedirs:
         dirs_to_process = args.basedirs
     else:
-        dirs_to_process = [d for d in glob.glob("core_nll_*") if os.path.isdir(d)]
+        # default seeds only (core_nll_0..9); excludes variant dirs like core_nll_0_<variant>
+        dirs_to_process = [d for d in glob.glob("core_nll_[0-9]") if os.path.isdir(d)]
 
     if not dirs_to_process:
         raise RuntimeError("No network directories found to process.")

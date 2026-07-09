@@ -56,7 +56,7 @@ Building the `full` model requires hundreds of GBs of memory. It usually needs t
 
 ## Folders and files
 
-base_props/: A folder that contains seed files that are necessary for building the network. These are mostly designed to be human readable and editable.
+base_props/: A folder that contains seed files that are necessary for building the network. These are mostly designed to be human readable and editable. Note that `base_props` itself is a git-ignored *managed symlink* automatically pointed at the active source directory by the Snakefile: `base_props_default/` for the default build, or `base_props_<VARIANT>/` when `--config model_variant=<VARIANT>` is set. To edit the default seed files, edit them in `base_props_default/` (see [Running a single model variant](#running-a-single-model-variant)).
 
 base_props/V1model_seed_file.xlsx: An excel file that contains general properties of
 each cell population. Edit this when you want to change which cell population is used
@@ -88,6 +88,11 @@ data to this network.
 Any network can be targeted by its output file path. `{network_name}` is one of the names
 defined in the Snakefile (see below for the full list). `{input_type}` is one of the
 available network options (see below).
+
+To run a single-network target for a **model variant**, suffix the network name
+with `_<VARIANT>` and pass `--config model_variant=<VARIANT>` (see
+[Running a single model variant](#running-a-single-model-variant) below), e.g.
+`snakemake core_L4-Sst2e-as-L6/output_plain/spikes.h5 --config model_variant=L4-Sst2e-as-L6`.
 
 ```bash
 # Run simulation and produce spike output
@@ -189,7 +194,11 @@ snakemake core_spikes
 ### Running a single model variant
 
 Pass `--config model_variant=<VARIANT>` to redirect all input files to
-`base_props_<VARIANT>/` and prefix all output directories with `<VARIANT>_`.
+`base_props_<VARIANT>/` and suffix all output directories with `_<VARIANT>`
+(e.g. `core_<VARIANT>/`, `core_nll_0_<VARIANT>/`), so they group by network name
+in the root — the same way the `base_props_*` input directories do.
+
+**Aggregate targets** (all 10 seeds):
 
 ```bash
 snakemake --config model_variant=i4Pvalb-like-i4Sst all_cores
@@ -197,9 +206,38 @@ snakemake --config model_variant=L4-e2e-syn-as-L6 all_cores_all
 snakemake --config model_variant=PV-like-Sst all_spectral
 ```
 
-The first time a variant target is built, a symlink
-`base_props → base_props_<VARIANT>` is created automatically so that scripts
-using hard-coded `base_props/` paths read the correct variant files.
+**Single-network targets** work with a variant too — suffix the network name
+with `_<VARIANT>` and pass the same variant via `--config`. The output lands in
+the isolated `<network>_<VARIANT>/` directory, so variants never overwrite each
+other or the default build:
+
+```bash
+# Spikes for one variant, one network
+snakemake core_L4-Sst2e-as-L6/output_plain/spikes.h5 --config model_variant=L4-Sst2e-as-L6
+
+# Any single-network target (raster, contrast, OSI/DSI) works the same way
+snakemake core_0_L4-Sst2e-as-L6/output_adjusted/raster_and_spectra_by_tuning_angle.png --config model_variant=L4-Sst2e-as-L6
+snakemake core_PV-like-Sst/figures/OSI_DSI_plain.png --config model_variant=PV-like-Sst
+```
+
+> **CLI gotcha:** `--config` greedily consumes everything after it as
+> `key=value` pairs, so **put the target *before* `--config`** (as above), or
+> separate them with `--`:
+> ```bash
+> snakemake --config model_variant=L4-Sst2e-as-L6 -- core_L4-Sst2e-as-L6/output_plain/spikes.h5
+> ```
+> `snakemake --config model_variant=X core_X/...` (target last, no `--`) fails
+> with *"Invalid config definition"* because the target is parsed as config.
+
+**How the variant redirect works.** The default props live in
+`base_props_default/`; `base_props` is a git-ignored *managed symlink*. On every
+invocation the Snakefile points `base_props` at the active source
+(`base_props_default` by default, `base_props_<VARIANT>/` under `--config`), so
+the many scripts that read hard-coded `base_props/...` paths pick up the correct
+files — including analysis-only targets whose upstream build is already cached.
+Only one variant's `base_props` can be active at a time, so build/refresh each
+variant in its own `snakemake` invocation (don't build multiple variants in a
+single run).
 
 Available model variants:
 

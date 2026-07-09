@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 
 main_scripts = ["build_network.py", "edge_funcs.py", "node_funcs.py"]
 
@@ -43,12 +44,42 @@ model_variants = [
 # ============================================================
 # Variant configuration  (set via --config model_variant=NAME)
 #   snakemake --config model_variant=i4Pvalb-like-i4Sst all_cores
-# Leave unset (or empty string) to use the default base_props/.
+# Leave unset (or empty string) to use the default (base_props_default/).
+#
+# The default props now live in base_props_default/; `base_props` is a
+# managed symlink (git-ignored) that points at the active source dir.
+# Many scripts read hard-coded "base_props/..." paths, so the symlink must
+# always resolve to the props for the active variant (or the default).
 # ============================================================
 model_variant = config.get("model_variant", "")
-base_props_dir = f"base_props_{model_variant}" if model_variant else "base_props"
-vp = f"{model_variant}_" if model_variant else ""   # prefix for all variant output dirs
-setup_deps = [f".base_props_{model_variant}_setup"] if model_variant else []
+_variant_slug = model_variant if model_variant else "default"
+# Physical source directory holding the active props.
+base_props_dir = f"base_props_{model_variant}" if model_variant else "base_props_default"
+vs = f"_{model_variant}" if model_variant else ""   # suffix for all variant output dirs: <network>_<variant>
+# Every build depends on the base_props symlink being pointed at base_props_dir.
+setup_deps = [f".base_props_{_variant_slug}_setup"]
+
+
+# ------------------------------------------------------------
+# Point the managed `base_props` symlink at the active source dir *now*,
+# before any rule runs. This guarantees correctness even for analysis-only
+# targets whose upstream build outputs are already cached (and therefore
+# would not otherwise trigger the setup_base_props rule below).
+# Safe: it never clobbers a real directory (see legacy warning).
+# ------------------------------------------------------------
+if os.path.isdir(base_props_dir):
+    if os.path.islink("base_props"):
+        if os.readlink("base_props") != base_props_dir:
+            os.remove("base_props")
+            os.symlink(base_props_dir, "base_props")
+    elif not os.path.exists("base_props"):
+        os.symlink(base_props_dir, "base_props")
+    else:
+        sys.stderr.write(
+            "WARNING: 'base_props' exists but is not a managed symlink; "
+            "variant redirection is disabled. Move it to 'base_props_default' "
+            "and delete 'base_props' to enable variant builds.\n"
+        )
 
 
 # ============================================================
@@ -199,11 +230,11 @@ for i in range(10):
         "other_options": "--fluctuate-nneu -nll"
     }
 
-# Add variant networks: {variant}_core_{i} and {variant}_core_nll_{i}
+# Add variant networks: core_{i}_{variant} and core_nll_{i}_{variant}
 # These are always registered so multi-variant aggregate rules can reference them.
 for variant in model_variants:
     for i in range(10):
-        networks[f"{variant}_core_{i}"] = {
+        networks[f"core_{i}_{variant}"] = {
             "radius": 400.0,
             "core_radius": 200.0,
             "memory": 20,
@@ -211,7 +242,7 @@ for variant in model_variants:
             "other_options": "--fluctuate-nneu",
             "model_variant": variant,
         }
-        networks[f"{variant}_core_nll_{i}"] = {
+        networks[f"core_nll_{i}_{variant}"] = {
             "radius": 400.0,
             "core_radius": 200.0,
             "memory": 20,
@@ -220,14 +251,15 @@ for variant in model_variants:
             "model_variant": variant,
         }
 
-# Apply variant prefix to the current session's default network set
-# so that running with --config model_variant=X prefixes all standard targets.
-if vp:
+# Apply variant suffix to the current session's default network set
+# so that running with --config model_variant=X suffixes all standard targets
+# as <network>_<variant>.
+if vs:
     _base_networks = {k: v for k, v in networks.items()
                       if not v.get("model_variant")}
-    _prefixed = {f"{vp}{k}": {**v, "model_variant": model_variant}
+    _suffixed = {f"{k}{vs}": {**v, "model_variant": model_variant}
                  for k, v in _base_networks.items()}
-    networks.update(_prefixed)
+    networks.update(_suffixed)
 
 
 def _get_model_variant(network_name):
@@ -236,7 +268,7 @@ def _get_model_variant(network_name):
 
 def _get_base_props(network_name):
     v = _get_model_variant(network_name)
-    return f"base_props_{v}" if v else "base_props"
+    return f"base_props_{v}" if v else "base_props_default"
 
 
 def _get_build_files(network_name):
@@ -263,26 +295,38 @@ def _get_synaptic_model(network_name):
 # wildcard_constraints block, which some Snakemake versions reject).
 _network_name_constraint = "|".join(re.escape(k) for k in networks.keys())
 _network_option_constraint = "|".join(network_options)
-_model_variant_constraint = "|".join(re.escape(v) for v in model_variants)
+# setup marker slug is a variant name or the literal "default"
+_setup_slug_constraint = "|".join(re.escape(v) for v in (model_variants + ["default"]))
 
 # only include available ones
 wildcard_constraints:
     network_name = _network_name_constraint,
     network_option = _network_option_constraint,
-    mv = _model_variant_constraint
+    slug = _setup_slug_constraint
 
 
 n_threads = 4
 
 
 # ============================================================
-# Variant setup rule: creates base_props symlink so scripts that
-# hard-code "base_props/" pick up the correct variant files.
-# Triggered automatically when a variant network is requested.
+# Variant setup rule: (re)points the `base_props` symlink at the active
+# source dir so scripts that hard-code "base_props/" read the correct files.
+# The symlink is also established at parse time (see top of file); this rule
+# keeps the dependency explicit in the DAG for build targets.
+# `slug` is a variant name or the literal "default".
+# NOTE: `rm -rf base_props` is safe because base_props is a managed symlink;
+# the default data lives in base_props_default/ (see migration notes).
 # ============================================================
 rule setup_base_props:
-    output: ".base_props_{mv}_setup"
-    shell: "ln -sfn base_props_{wildcards.mv} base_props && touch {output}"
+    output: ".base_props_{slug}_setup"
+    params:
+        src=lambda w: "base_props_default" if w.slug == "default" else f"base_props_{w.slug}"
+    shell:
+        """
+        rm -rf base_props
+        ln -s {params.src} base_props
+        touch {output}
+        """
 
 
 # ============================================================
@@ -291,80 +335,80 @@ rule setup_base_props:
 # pre-compute them here as plain Python variables instead.
 # ============================================================
 _rcorr_inputs = expand(
-    vp + "core_nll_{i}/figures/response_correlation_{input_type}.png",
+    "core_nll_{i}" + vs + "/figures/response_correlation_{input_type}.png",
     i=range(10), input_type=network_options_1)
 _contrast_inputs = expand(
-    vp + "core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    "core_nll_{i}" + vs + "/figures/contrast_responsive_cells_{input_type}.pdf",
     i=range(10), input_type=network_options_1)
 _contrast_notf_inputs = expand(
-    vp + "core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    "core_nll_{i}" + vs + "/figures/contrast_responsive_cells_{input_type}.pdf",
     i=range(10), input_type=["plain", "adjusted"])
 _rasters_inputs = expand(
-    vp + "core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    "core_nll_{i}" + vs + "/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
     i=range(10), input_type=network_options_2)
 _rasters_notf_inputs = expand(
-    vp + "core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    "core_nll_{i}" + vs + "/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
     i=range(10), input_type=["plain", "adjusted"])
 _odsi_inputs = expand(
-    vp + "core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    "core_nll_{i}" + vs + "/figures/OSI_DSI_{input_type}.png",
     i=range(10), input_type=network_options_1)
 _odsi_notf_inputs = expand(
-    vp + "core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    "core_nll_{i}" + vs + "/figures/OSI_DSI_{input_type}.png",
     i=range(10), input_type=["plain", "adjusted"])
 _core_nlls_plot_inputs = expand(
-    vp + "core_nll_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png",
+    "core_nll_{i}" + vs + "/output_adjusted/raster_and_spectra_by_tuning_angle.png",
     i=range(10))
-_cores_inputs = expand(vp + "core_{i}/output_adjusted/spikes.h5", i=range(10))
+_cores_inputs = expand("core_{i}" + vs + "/output_adjusted/spikes.h5", i=range(10))
 _cores_plot_inputs = expand(
-    vp + "core_{i}/output_adjusted/raster_and_spectra_by_tuning_angle.png",
+    "core_{i}" + vs + "/output_adjusted/raster_and_spectra_by_tuning_angle.png",
     i=range(10))
 _agg_rcorr_inputs = expand(
-    vp + "aggregated_response_correlation/{input_type}.png",
+    "aggregated_response_correlation" + vs + "/{input_type}.png",
     input_type=network_options_1)
 _lifetime_sparsity_inputs = expand(
-    vp + "core_nll_{i}/metrics/lifetime_sparsity_{input_type}.npy",
+    "core_nll_{i}" + vs + "/metrics/lifetime_sparsity_{input_type}.npy",
     i=range(10), input_type=network_options_1)
 _pop_sparsity_inputs = expand(
-    vp + "core_nll_{i}/metrics/population_sparsity_{input_type}.npy",
+    "core_nll_{i}" + vs + "/metrics/population_sparsity_{input_type}.npy",
     i=range(10), input_type=network_options_1)
 _lifetime_sparsity_outputs = expand(
-    vp + "lifetime_sparsity_core_nll_{i}_{input_type}.png",
+    "lifetime_sparsity_core_nll_{i}_{input_type}" + vs + ".png",
     i=range(10), input_type=network_options_1)
 _spectra_inputs = expand(
-    vp + "core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json",
+    "core_nll_{i}" + vs + "/contrasts_{input_type}/combined_spectra_700to2700.json",
     i=range(10), input_type=network_options_1)
 _spectra_figs = expand(
-    vp + "core_nll_{i}/contrasts_{input_type}/figures",
+    "core_nll_{i}" + vs + "/contrasts_{input_type}/figures",
     i=range(10), input_type=network_options_1)
 _core0_contrast_inputs = expand(
-    vp + "core_nll_0/figures/contrast_responsive_cells_{input_type}.pdf",
+    "core_nll_0" + vs + "/figures/contrast_responsive_cells_{input_type}.pdf",
     input_type=network_options_1)
 _core0_rasters_inputs = expand(
-    vp + "core_nll_0/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    "core_nll_0" + vs + "/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
     input_type=network_options_2)
 _core0_odsi_inputs = expand(
-    vp + "core_nll_0/figures/OSI_DSI_{input_type}.png",
+    "core_nll_0" + vs + "/figures/OSI_DSI_{input_type}.png",
     input_type=network_options_1)
 _core0_spectra_inputs = expand(
-    vp + "core_nll_0/contrasts_{input_type}/combined_spectra_700to2700.json",
+    "core_nll_0" + vs + "/contrasts_{input_type}/combined_spectra_700to2700.json",
     input_type=network_options_1)
 _core0_spectra_figs = expand(
-    vp + "core_nll_0/contrasts_{input_type}/figures",
+    "core_nll_0" + vs + "/contrasts_{input_type}/figures",
     input_type=network_options_1)
 _var_rasters_inputs = expand(
-    "{variant}_core_nll_{i}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
+    "core_nll_{i}_{variant}/output_{input_type}/raster_and_spectra_by_tuning_angle.png",
     variant=model_variants, i=range(10), input_type=network_options_2)
 _var_contrast_inputs = expand(
-    "{variant}_core_nll_{i}/figures/contrast_responsive_cells_{input_type}.pdf",
+    "core_nll_{i}_{variant}/figures/contrast_responsive_cells_{input_type}.pdf",
     variant=model_variants, i=range(10), input_type=network_options_1)
 _var_odsi_inputs = expand(
-    "{variant}_core_nll_{i}/figures/OSI_DSI_{input_type}.png",
+    "core_nll_{i}_{variant}/figures/OSI_DSI_{input_type}.png",
     variant=model_variants, i=range(10), input_type=network_options_1)
 _var_spikes_inputs = expand(
-    "{variant}_core_nll_{i}/output_{input_type}/spikes.h5",
+    "core_nll_{i}_{variant}/output_{input_type}/spikes.h5",
     variant=model_variants, i=range(10), input_type=["plain", "adjusted"])
 _var_spectra_inputs = expand(
-    "{variant}_core_nll_{i}/contrasts_{input_type}/combined_spectra_700to2700.json",
+    "core_nll_{i}_{variant}/contrasts_{input_type}/combined_spectra_700to2700.json",
     variant=model_variants, i=range(10), input_type=network_options_1)
 
 
@@ -414,10 +458,10 @@ rule all_cores_plot:
     input: _cores_plot_inputs
 
 rule all:
-    input: f"{vp}small/figures/OSI_DSI.png"
+    input: f"small{vs}/figures/OSI_DSI.png"
 
 rule core_spikes:
-    input: f"{vp}core/output_adjusted/spikes.h5"
+    input: f"core{vs}/output_adjusted/spikes.h5"
 
 rule clean:
     shell:
@@ -432,6 +476,7 @@ rule clean:
         rm -rf tiny
         rm -rf profile
         rm -rf out.prof
+        rm -f base_props .base_props_*_setup
         """
 
 
@@ -570,7 +615,7 @@ rule bkg_weight_model:
 rule build_network:
     input:
         script=main_scripts,
-        data=lambda wildcards: _get_build_files(wildcards.network_name)
+        data=lambda wildcards: _get_build_files(wildcards.network_name) + setup_deps
     output: ["{network_name}" + name for name in network_files]
     threads: n_threads
     params:
@@ -854,12 +899,12 @@ rule plot_odsi:
 
 rule bkg_adjustment:
     input:
-        config=f"{vp}small/output_bkgtune/spikes.h5"
-    output: f"{vp}small/network/bkg_v1_edge_types_adjusted.csv"
+        config=f"small{vs}/output_bkgtune/spikes.h5"
+    output: f"small{vs}/network/bkg_v1_edge_types_adjusted.csv"
     threads: n_threads
     shell: f"""
         python bkg_weight_adjustment.py
-        cp {vp}small/network/bkg_v1_edge_types.csv {vp}small/network/bkg_v1_edge_types_adjusted.csv
+        cp small{vs}/network/bkg_v1_edge_types.csv small{vs}/network/bkg_v1_edge_types_adjusted.csv
         """
 
 
@@ -868,9 +913,9 @@ rule graph:
 
 
 rule profile_build:
-    input: [f"{vp}profile" + name for name in network_files]
+    input: [f"profile{vs}" + name for name in network_files]
     output: "out.prof"
-    shell: f"python -m cProfile -o out.prof build_network.py -f -o {vp}profile/network --radius 100.0 --core-radius 50.0"
+    shell: f"python -m cProfile -o out.prof build_network.py -f -o profile{vs}/network --radius 100.0 --core-radius 50.0"
 
 
 rule clear_logs:
@@ -930,15 +975,15 @@ rule response_correlation_plot:
 rule aggregate_correlation_plot:
     input:
         script="aggregate_correlation_plot.py",
-        data=vp + "core_nll_9/metrics/response_correlations_{input_type}.npy",
+        data="core_nll_9" + vs + "/metrics/response_correlations_{input_type}.npy",
     output:
-        vp + "aggregated_response_correlation/{input_type}.png"
+        "aggregated_response_correlation" + vs + "/{input_type}.png"
     params:
-        vp=vp
+        vs=vs
     shell:
         """
-        mkdir -p {params.vp}aggregated_response_correlation
-        python {input.script} {params.vp}core_nll_? {wildcards.input_type} {params.vp}aggregated_response_correlation/{wildcards.input_type}.png
+        mkdir -p aggregated_response_correlation{params.vs}
+        python {input.script} core_nll_?{params.vs} {wildcards.input_type} aggregated_response_correlation{params.vs}/{wildcards.input_type}.png
         """
 
 rule all_response_correlation_plots:
@@ -974,7 +1019,7 @@ rule plot_population_sparsity:
         "population_sparsity_{input_type}.png"
     params:
         script="plot_sparsity.py",
-        base_dirs=[vp + f"core_nll_{i}" for i in range(10)],
+        base_dirs=[f"core_nll_{i}{vs}" for i in range(10)],
         input_type="{input_type}",
         output_dir="."
     shell:
@@ -987,7 +1032,7 @@ rule plot_lifetime_sparsity:
     output: _lifetime_sparsity_outputs
     params:
         script="plot_sparsity.py",
-        base_dirs=[vp + f"core_nll_{i}" for i in range(10)],
+        base_dirs=[f"core_nll_{i}{vs}" for i in range(10)],
         input_type="{input_type}",
         output_dir="."
     shell:
@@ -1037,9 +1082,9 @@ rule aggregate_spectra:
         script="aggregate_spectra.py",
         data=_spectra_inputs
     output:
-        directory(vp + "aggregate_spectra")
+        directory("aggregate_spectra" + vs)
     params:
-        base_dirs=" ".join([vp + f"core_nll_{i}" for i in range(10)])
+        base_dirs=" ".join([f"core_nll_{i}{vs}" for i in range(10)])
     shell:
         """
         python {input.script} \
@@ -1053,9 +1098,9 @@ rule aggregate_spectra_normalized:
         script="aggregate_spectra.py",
         data=_spectra_inputs
     output:
-        directory(vp + "aggregate_spectra_normalized")
+        directory("aggregate_spectra_normalized" + vs)
     params:
-        base_dirs=" ".join([vp + f"core_nll_{i}" for i in range(10)])
+        base_dirs=" ".join([f"core_nll_{i}{vs}" for i in range(10)])
     shell:
         """
         python {input.script} \
