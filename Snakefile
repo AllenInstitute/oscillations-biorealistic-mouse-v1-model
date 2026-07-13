@@ -58,6 +58,10 @@ base_props_dir = f"base_props_{model_variant}" if model_variant else "base_props
 vs = f"_{model_variant}" if model_variant else ""   # suffix for all variant output dirs: <network>_<variant>
 # Every build depends on the base_props symlink being pointed at base_props_dir.
 setup_deps = [f".base_props_{_variant_slug}_setup"]
+# TF-training synaptic-property outputs go to a per-variant dir so variants with
+# different synaptic properties don't clobber each other: tf_props_<variant>
+# (plain tf_props for the default). The tf scripts read this via $TF_PROPS_DIR.
+tf_props_dir = "tf_props" + vs
 
 
 # ------------------------------------------------------------
@@ -493,21 +497,25 @@ rule tf_alpha_params:
             f"{base_props_dir}/amp_slow.csv",
         ] + setup_deps
     output:
-        "tf_props/double_alpha_params.csv",
-        "tf_props/double_alpha_params_full.csv",
-    shell: "python {input.script}"
+        f"{tf_props_dir}/double_alpha_params.csv",
+        f"{tf_props_dir}/double_alpha_params_full.csv",
+    params:
+        tf_props_dir=tf_props_dir
+    shell: "TF_PROPS_DIR={params.tf_props_dir} python {input.script}"
 
 rule tf_basis_functions:
     input:
         script="bf_conv.py",
         data=[
-            "tf_props/double_alpha_params.csv",
-            "tf_props/double_alpha_params_full.csv"
+            f"{tf_props_dir}/double_alpha_params.csv",
+            f"{tf_props_dir}/double_alpha_params_full.csv"
         ]
     output:
-        "tf_props/tau_basis.npy",
-        "tf_props/basis_function_weights.csv"
-    shell: "python {input.script}"
+        f"{tf_props_dir}/tau_basis.npy",
+        f"{tf_props_dir}/basis_function_weights.csv"
+    params:
+        tf_props_dir=tf_props_dir
+    shell: "TF_PROPS_DIR={params.tf_props_dir} python {input.script}"
 
 
 rule synaptic_models:

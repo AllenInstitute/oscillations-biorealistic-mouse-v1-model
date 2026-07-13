@@ -1,12 +1,18 @@
 # %% A script for experimenting basis function conversion
 
 # let's try to replicate the shape of a particular function.
+import os
 import sys
 import matplotlib.pyplot as plt
 import nest
 import numpy as np
 import pandas as pd
 from iminuit import minimize
+
+# Input/output directory for the TF-training synaptic properties. The Snakefile
+# sets TF_PROPS_DIR=tf_props_<variant> so variant runs don't clobber each other;
+# defaults to "tf_props" when run standalone.
+tf_props_dir = os.environ.get("TF_PROPS_DIR", "tf_props")
 
 # nest.Install("glif_psc_double_alpha_module")
 
@@ -56,7 +62,7 @@ def generate_basis_functions(n_basis, da_params, save_tau=False):
     max_tau = da_params["tau_syn_slow"].max()
     tau_basis = np.logspace(np.log10(min_tau), np.log10(max_tau), n_basis)
     if save_tau:
-        np.save(f"tf_props/tau_basis_{n_basis}.npy", tau_basis)
+        np.save(f"{tf_props_dir}/tau_basis_{n_basis}.npy", tau_basis)
 
     # define the basis alpha functions
     times = np.arange(0, 30, 0.1)
@@ -83,7 +89,7 @@ def loss(weights, basis_functions, target):
 # %%
 
 n_basis = 5
-da_params = pd.read_csv("tf_props/double_alpha_params.csv", sep=" ")
+da_params = pd.read_csv(f"{tf_props_dir}/double_alpha_params.csv", sep=" ")
 
 basis_functions, times = generate_basis_functions(n_basis, da_params)
 
@@ -91,7 +97,7 @@ basis_functions, times = generate_basis_functions(n_basis, da_params)
 for i in range(n_basis):
     plt.plot(times, basis_functions[i, :])
 plt.xlabel("Time (ms)")
-plt.savefig("tf_props/basis_functions.png")
+plt.savefig(f"{tf_props_dir}/basis_functions.png")
 
 # %%
 
@@ -133,7 +139,7 @@ def optimize_params(n_basis, da_params):
 
 # %% do it for n_basis 2 to 6
 n_bases = np.arange(2, 8)
-da_params = pd.read_csv("tf_props/double_alpha_params.csv", sep=" ")
+da_params = pd.read_csv(f"{tf_props_dir}/double_alpha_params.csv", sep=" ")
 func_vals = []
 params = []
 for n_basis in n_bases:
@@ -151,7 +157,7 @@ plt.yscale("log")
 plt.xticks(np.arange(1, 7), np.arange(2, 8))
 plt.xlabel("Number of basis functions")
 plt.ylabel("Loss function value")
-plt.savefig("tf_props/loss_vs_n_basis.png")
+plt.savefig(f"{tf_props_dir}/loss_vs_n_basis.png")
 
 # %% from each group, pick the worst example and plot the trace along with the true trace.
 # pick the worst example
@@ -168,12 +174,12 @@ for i, idx in enumerate(worst_idx):
     plt.title(
         "n_basis: " + str(n_bases[i]) + ", loss: {:.2e}".format(func_vals[i, idx])
     )
-    plt.savefig("tf_props/n_basis_" + str(n_bases[i]) + ".png")
+    plt.savefig(f"{tf_props_dir}/n_basis_" + str(n_bases[i]) + ".png")
 
 # %% 5 basis function might be a reasonable starting point.
 # now optimize full list of the basis functions.
 da_params_full = pd.read_csv(
-    "tf_props/double_alpha_params_full.csv", sep=" ", index_col=0
+    f"{tf_props_dir}/double_alpha_params_full.csv", sep=" ", index_col=0
 )
 fvals_5, params_5 = optimize_params(5, da_params_full)
 fvals_4, params_4 = optimize_params(4, da_params_full)
@@ -190,7 +196,7 @@ df_4.index = da_params_full.index
 # TODO: at one point, change it to sep=" "
 # df_5.to_csv(f"tf_props/basis_function_weights_5.csv")
 # df_4.to_csv(f"tf_props/basis_function_weights_4.csv")
-df_4.to_csv(f"tf_props/basis_function_weights.csv")
+df_4.to_csv(f"{tf_props_dir}/basis_function_weights.csv")
 
 
 # finally, save tau.

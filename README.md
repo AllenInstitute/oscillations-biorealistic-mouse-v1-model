@@ -239,6 +239,23 @@ Only one variant's `base_props` can be active at a time, so build/refresh each
 variant in its own `snakemake` invocation (don't build multiple variants in a
 single run).
 
+**TF-training synaptic properties (`tf_props`).** The `tf_alpha_params` and
+`tf_basis_functions` rules produce the synaptic basis data used by the separate
+`V1_GLIF_model_tf_training/` training code. Because some variants have different
+synaptic properties, these outputs are written to a per-variant directory:
+`tf_props/` for the default and `tf_props_<VARIANT>/` under `--config` (the
+scripts honor `$TF_PROPS_DIR`, which the Snakefile sets automatically):
+
+```bash
+snakemake tf_props_L4-Sst2e-as-L6/basis_function_weights.csv --config model_variant=L4-Sst2e-as-L6
+```
+
+To train that variant, copy `tau_basis.npy` and `basis_function_weights.csv`
+from `tf_props_<VARIANT>/` into a `V1_GLIF_model_tf_training/synaptic_data_<VARIANT>/`
+folder you create, then pass `--synaptic_data_dir synaptic_data_<VARIANT>` to the
+training script (see that repo's README). These folders are created and specified
+manually — they are intentionally not auto-linked.
+
 Available model variants:
 
 | Variant name | Source directory |

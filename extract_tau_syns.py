@@ -1,6 +1,7 @@
 # extract a unique set of tau_syn, tau_syn_slow, amp_slow from the base_props
 
 # %%
+import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -8,6 +9,10 @@ from pathlib import Path
 
 # base_props_dir = "../../glif_builder_test/biorealistic-v1-model/base_props/"
 base_props_dir = "base_props/"
+# Output directory for the TF-training synaptic properties. The Snakefile sets
+# TF_PROPS_DIR=tf_props_<variant> so variant runs don't clobber each other;
+# defaults to "tf_props" when run standalone.
+tf_props_dir = os.environ.get("TF_PROPS_DIR", "tf_props")
 params = ["tau_syn_fast", "tau_syn_slow", "amp_slow"]
 
 # each parameter is stored in a .csv file, as a matrix. load each matrix, and flatten
@@ -34,11 +39,11 @@ df_unique = df.drop_duplicates().copy()
 
 
 # make the directory if not yet
-Path("tf_props").mkdir(parents=True, exist_ok=True)
+Path(tf_props_dir).mkdir(parents=True, exist_ok=True)
 
 
 # store them in a file.
-df_unique.to_csv("tf_props/double_alpha_params.csv", sep=" ", index=False)
+df_unique.to_csv(f"{tf_props_dir}/double_alpha_params.csv", sep=" ", index=False)
 
 # %% full version is also stored.
 df_full = df.copy()
@@ -48,4 +53,4 @@ index = ["{}_to_{}".format(row, col) for row in row_names for col in col_names]
 df_full.index = index
 
 
-df_full.to_csv("tf_props/double_alpha_params_full.csv", sep=" ")
+df_full.to_csv(f"{tf_props_dir}/double_alpha_params_full.csv", sep=" ")
