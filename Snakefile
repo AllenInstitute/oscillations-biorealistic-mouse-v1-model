@@ -309,7 +309,7 @@ wildcard_constraints:
     slug = _setup_slug_constraint
 
 
-n_threads = 4
+n_threads = 8
 
 
 # ============================================================
@@ -941,7 +941,7 @@ rule response_correlation_calculation:
         ]
     output:
         correlations="{network_name}/metrics/response_correlations_{input_type}.npy",
-    threads: 4,
+    threads: 8,
     params:
         base_dir="{network_name}",
         input_type="{input_type}"
@@ -1056,7 +1056,7 @@ rule spectral_analysis:
         data="{network_name}/contrasts_{network_option}/angle0_contrast0.05_trial0/spikes.h5"
     output:
         "{network_name}/contrasts_{network_option}/combined_spectra_700to2700.json"
-    threads: 4
+    threads: 8
     shell:
         """
         python {input.script} \
