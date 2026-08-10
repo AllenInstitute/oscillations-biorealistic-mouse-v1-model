@@ -43,6 +43,7 @@ diagnose/*
 tensorflow/*
 tf_props/*
 tf_props_*/
+logs_variant_sweep/*
 base_props_deprecated/*
 connection_params_for_v1DD/*
 

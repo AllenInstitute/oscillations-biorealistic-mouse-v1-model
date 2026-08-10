@@ -292,6 +292,27 @@ Available model variants:
 
 ---
 
+### Building several variants (sweep script)
+
+A variant can only be built one-at-a-time (the `base_props` symlink and the shared
+`glif_props/`, `cell_types/`, `glif_models/`, `glif_requisite/` dirs hold a single
+variant at a time), so multiple variants cannot be combined into one `snakemake`
+run or parallelized. To build `core_<variant>/output_plain/spikes.h5` for a set of
+variants **sequentially**, use the helper script (edit the `VARIANTS` list inside
+to choose which):
+
+```bash
+conda activate new_v1
+./build_selected_variant_core_spikes.sh                   # cores from profiles/default (8)
+./build_selected_variant_core_spikes.sh --cores 16        # extra snakemake flags pass through
+./build_selected_variant_core_spikes.sh --rerun-incomplete
+```
+
+It runs `snakemake core_<v>/output_plain/spikes.h5 --config model_variant=<v>` for
+each variant, logs to `logs_variant_sweep/<v>.log`, and prints a pass/fail summary.
+Re-running is safe — already-built variants are skipped. (It must be run directly,
+not via a `snakemake` rule, which would deadlock on the working-directory lock.)
+
 ### Multi-variant aggregate targets
 
 These rules collect outputs across **all 29 variants × 10 seeds**. Each variant's
