@@ -22,25 +22,25 @@ set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
 VARIANTS=(
-    "i4Pvalb-like-i4Sst"
-    "i4Sst-like-i4Pvalb"
-    "L4-cell-vol-dens-conn-as-L6"
-    "L4-cell-volume-density-as-L6"
-    "L4-connectivity-as-L6"
-    "L4-e2e-syn-as-L6"
-    "L4-e2i-syn-as-L6"
-    "L4-i2e-syn-as-L6"
-    "L4-Pvalb2e-as-L6"
-    "L4-Pvalb2e-syn-lat-as-L6"
-    "L4-Pvalb2e-syn-tau-amp-as-L6"
-    "L4-Sst2e-as-L6"
-    "L4-Sst2e-syn-lat-as-L6"
-    "L4-Sst2e-syn-tau-amp-as-L6"
-    "L4-syn-as-L6-syn"
-    "L4-Vip2e-syn-lat-as-L6"
-    "L4-Vip2e-syn-tau-amp-as-L6"
-    "L6-as-L4"
-    "L6-syn-as-L4-syn"
+    "i4Pvalb-like-i4Sst",
+    "i4Sst-like-i4Pvalb",
+    "L4-cell-vol-dens-conn-as-L6",
+    "L4-cell-volume-density-as-L6",
+    "L4-connectivity-as-L6",
+    "L4-syn-as-L6-syn",
+    "L4-e2e-syn-as-L6",
+    "L4-e2i-syn-as-L6",
+    "L4-i2e-syn-as-L6",
+    "L4-Pvalb2e-as-L6",
+    "L4-Pvalb2e-syn-lat-as-L6",
+    "L4-Pvalb2e-syn-tau-amp-as-L6",
+    "L4-Sst2e-as-L6",
+    "L4-Sst2e-syn-lat-as-L6",
+    "L4-Sst2e-syn-tau-amp-as-L6",
+    "L4-Vip2e-syn-lat-as-L6",
+    "L4-Vip2e-syn-tau-amp-as-L6",
+    "L6-as-L4",
+    "L6-syn-as-L4-syn",
 )
 
 if ! command -v snakemake >/dev/null 2>&1; then
