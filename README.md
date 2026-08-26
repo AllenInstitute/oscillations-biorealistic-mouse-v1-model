@@ -1,358 +1,396 @@
-# biorealistic-v1-model
+# Oscillations paper — reproducing simulations and analysis
 
-A project for making biorealistic model of mouse V1.
-This is a successor project of making a model of the mouse primary visual cortex
-(<https://portal.brain-map.org/explore/models/mv1-all-layers>)
+A biorealistic model of mouse V1, used here to study gamma and alpha-beta
+oscillations and their laminar organization. This repository is based on
+[AllenInstitute/biorealistic-v1-model](https://github.com/AllenInstitute/biorealistic-v1-model)
+and has been modified for our study of network oscillations.
 
-The improvements will be:
+The underlying V1 model is described in:
 
-* Connection probability and weights are derived from coherent datasets, including the Allen Institute synaptic physiology data and MICrONS electron microscopy connectomics dataset (instead from the literature).
-* Synaptic connections are now expressed by double alpha functions and the receptor types are more elaborated.
-* Segregation of the L5 excitatory cells into IT, ET, and NP types.
-* More GLIF cell models are used.
+> Ito S., Haufler D., Galván Fraile J., Dai K., Aman J., Chen G., Mirasso C.,
+> Maass W., Arkhipov A. (2026). *Deep-learning-assisted simulation of a cortical
+> circuit: integrating anatomy, physiology and function.*
+> bioRxiv. <https://doi.org/10.64898/2026.03.13.711751>
 
-Only PointNet version is available as of now.
+This is a successor of the mouse primary visual cortex model
+(<https://portal.brain-map.org/explore/models/mv1-all-layers>), with the following
+key improvements:
 
-## Installation instruction
+* Connection probability and weights derived from coherent datasets, including the
+  Allen Institute synaptic physiology data and MICrONS electron microscopy
+  connectomics dataset (instead of from the literature).
+* Synaptic connections expressed by double alpha functions with more elaborated
+  receptor types.
+* Segregation of L5 excitatory cells into IT, ET, and NP types.
+* More GLIF cell models.
 
-First, clone this repository to your local environment.
+Only PointNet simulations were used for the oscillations paper.
+
+For a full description of the build pipeline used in the original study, network architecture, and Snakemake
+targets see [README_V1_model.md](README_V1_model.md).
+
+---
+
+## Installation
+
+First, clone the repository:
 
 ```bash
 git clone https://github.com/AllenInstitute/biorealistic-v1-model.git
 ```
 
-I suggest using [miniforge](https://github.com/conda-forge/miniforge) if you are setting up the environment for this. (Other conda variants will also work, if you specify 'conda-forge' as the primary package source.)
-
-The 'conda' command can be replaced with 'mamba' if you have it installed, and it's much faster than 'conda'.
+Create the conda environment (use [miniforge](https://github.com/conda-forge/miniforge)
+or any conda variant with `conda-forge` as the primary channel; `mamba` is faster):
 
 ```bash
 conda env create -f environment.yml -n <env_name>
 ```
 
-## How to build a network and run a simulation
+---
 
-The most straightforward way to get a network and its simulation output is doing the following.
+## How to build a network
 
 ```bash
 snakemake <network_name>/output_plain/spikes.h5
 ```
 
-where `<network_name>` is one of the defined names in `Snakefile`. Namely:
+Available `<network_name>` values:
 
-* `full`: The full size network (700 µm radius, ~203k neurons)
-* `core`: 400 µm radius network. ~67k neurons.
-* `core_X`: X is {0-9}. The number of neurons in each cell model has Poisson fluctuation.
-* `core_nll`: Same geometry as core, but no weight like-to-like is used.
-* `core_nll_X`: Same as core_X, but no weight like-to-like is used.
-* `small`: 200 µm radius network.
-* `tiny`: 100 µm radius network. Mainly for testing the build script.
-* `profile`: For profiling workflows. 200 µm radius.
+| Network name | Description |
+|---|---|
+| `full` | 700 µm radius (~203 k neurons) — requires cluster |
+| `core` | 400 µm radius (~67 k neurons) |
+| `core_X` (X = 0–9) | Same as `core` with Poisson-fluctuated neuron counts |
+| `core_nll` | Same as `core`, no weight like-to-like |
+| `core_nll_X` | Same as `core_X`, no weight like-to-like |
+| `small` | 200 µm radius |
+| `tiny` | 50 µm radius — for testing |
+| `profile` | 100 µm radius — for profiling |
 
-You can create a custom size if you define parameters in `Snakefile`.
+Edit `base_props_default/V1model_seed_file.xlsx` to control which cell types are
+included. Building `full` requires hundreds of GB of RAM and must be run on a
+cluster; subsequent Snakemake steps work normally once the network is built.
 
-Also, you can edit `V1model_seed_file.xlsx` to change what cell types are be included. For example, if you want to make L4 only network, you can delete all the cell types other than L4 from this file.
+> **Note:** All simulations in our oscillations study use the **`core` network**
+> (400 µm radius, ~67 k neurons). This is the network version built, trained, and
+> analysed throughout the paper.
 
-Building the `full` model requires hundreds of GBs of memory. It usually needs to be run on a cluster computer, but it is not incorporated in the snakemake workflow yet. If you really need the `full` network, running the build script should be done manually. The subsequent processes should work fine once you build the model.
+---
 
-## Folders and files
+## Key directories and files
 
-base_props/: A folder that contains seed files that are necessary for building the network. These are mostly designed to be human readable and editable. Note that `base_props` itself is a git-ignored *managed symlink* automatically pointed at the active source directory by the Snakefile: `base_props_default/` for the default build, or `base_props_<VARIANT>/` when `--config model_variant=<VARIANT>` is set. To edit the default seed files, edit them in `base_props_default/` (see [Running a single model variant](#running-a-single-model-variant)).
+**`base_props/`** — seed files needed to build the network (human-readable CSV/XLSX).
+`base_props` is a git-ignored *managed symlink* pointed at the active source directory
+by the Snakefile: `base_props_default/` for the default build, or
+`base_props_<VARIANT>/` when `--config model_variant=<VARIANT>` is set.
 
-base_props/V1model_seed_file.xlsx: An excel file that contains general properties of
-each cell population. Edit this when you want to change which cell population is used
-and their numbers.
+**`base_props/V1model_seed_file.xlsx`** — cell population properties (types and counts).
 
-base_props/exclude_list.csv: Cells listed in this file will be excluded from the model. The reasons could vary, but generally due to undesired properties in the model, such as spiny inhibitory cells, aspiny excitatory cells, or that the model does not well reproduce cell's activity.
+**`base_props/exclude_list.csv`** — cells excluded from the model.
 
-base_props/bkg_weights_population.csv: This file defines synaptic weights from background cell (currently, there is only one entity for background source) to each cell population. The synaptic weights in this file are copied from the previous model (except for L5 which is average of the two types in the previous model), and are parameters of the optimization stage later.
+**`base_props/bkg_weights_population.csv`** — synaptic weights from the background
+source to each cell population; starting parameters for the optimization stage.
 
-Preferred data storage option is CSV format, as long as the data are not large. All the csv files are 'space' separarated (to match with SONATA format). Larger data can be stored as h5 data frame. All should be readable in pandas.
+Data are stored as space-separated CSV (SONATA format) or HDF5 for larger files;
+all are readable with pandas.
 
+---
 
 ## Notes
-In the new V1 model, the LGN coordinates are defined as the visual field coordinates
-(elevation and azimuth), though these coordinates are not zero-centered.
-The LGN’s elevation axis is oriented upward, aligning with the V1 model’s z-axis;
-however, this may conflict with conventional image coordinate systems, where row indices
-increase downward. Note that this definition differs from our previous model (Billeh et
-al., 2020), which defined the LGN coordinate axis as downward.
-Use the y_dir and flip_y options in BMTK to control image orientation when presenting
-data to this network.
 
-
-
-## Snakemake pipeline targets
-
-### Single-network targets
-
-Any network can be targeted by its output file path. `{network_name}` is one of the names
-defined in the Snakefile (see below for the full list). `{input_type}` is one of the
-available network options (see below).
-
-To run a single-network target for a **model variant**, suffix the network name
-with `_<VARIANT>` and pass `--config model_variant=<VARIANT>` (see
-[Running a single model variant](#running-a-single-model-variant) below), e.g.
-`snakemake core_L4-Sst2e-as-L6/output_plain/spikes.h5 --config model_variant=L4-Sst2e-as-L6`.
-
-```bash
-# Run simulation and produce spike output
-snakemake {network_name}/output_{input_type}/spikes.h5
-
-# Raster and spectra plot
-snakemake {network_name}/output_{input_type}/raster_and_spectra_by_tuning_angle.png
-
-# Contrast response plot
-snakemake {network_name}/figures/contrast_responsive_cells_{input_type}.pdf
-
-# OSI/DSI plot
-snakemake {network_name}/figures/OSI_DSI_{input_type}.png
-```
-
-Available `input_type` values:
-- `plain`, `adjusted`, `bio_trained`, `naive` — used for most analyses
-- `plain`, `adjusted`, `bio_trained`, `naive`, `bio_free`, `uni_reg` — used for rasters
-
-Available `{network_name}` values:
-- `core_0` … `core_9` — 400 µm radius, Poisson-fluctuated neuron counts
-- `core_nll_0` … `core_nll_9` — same, no weight like-to-like
-- `core` — single 400 µm radius network
-- `core_nll` — single 400 µm, no weight like-to-like
-- `small` — 200 µm radius
-- `full` / `full_nll` — 700 µm radius (requires cluster)
-- `tiny` — 50 µm radius (testing)
-- `profile` — 100 µm radius (profiling)
+LGN coordinates are defined in visual field coordinates (elevation and azimuth),
+not zero-centered. The elevation axis is oriented upward (aligning with the V1
+model's z-axis), which may conflict with image coordinate systems where row indices
+increase downward. This differs from Billeh et al. (2020), which defined the axis
+downward. Use the `y_dir` and `flip_y` options in BMTK to control image orientation.
 
 ---
 
-### Aggregate targets (baseline model)
+## Getting the core network
 
-These targets collect outputs across all 10 randomised core seeds.
+Build the baseline `core` network and run a simulation:
 
 ```bash
-# All simulations for core seeds (spikes only)
-snakemake all_cores
+# Build network, run simulation with plain (no TF-trained) weights
+snakemake core/output_plain/spikes.h5
 
-# All raster plots for core seeds
-snakemake all_cores_plot
-
-# Rasters for all 10 core_nll seeds (adjusted only)
-snakemake all_core_nlls_plot
-
-# Contrast response plots — all input types
-snakemake all_cores_nll_contrast_plot
-
-# Contrast response plots — plain + adjusted only
-snakemake all_cores_nll_contrast_plot_notf
-
-# Raster plots — all input types
-snakemake all_cores_nll_rasters
-
-# Raster plots — plain + adjusted only
-snakemake all_cores_nll_rasters_notf
-
-# OSI/DSI plots — all input types
-snakemake all_core_nll_odsi_plots
-
-# OSI/DSI plots — plain + adjusted only
-snakemake all_core_nll_odsi_plots_notf
-
-# Response correlation plots + aggregated
-snakemake all_cores_nll_response_corr_plot
-
-# All response correlation plots (per-network + aggregated)
-snakemake all_response_correlation_plots
-
-# All analysis for core_nll_0 (contrast + raster + OSI/DSI + spectra)
-snakemake all_core_nll_0_all
-
-# Combo targets
-snakemake all_cores_notf       # contrast + raster + OSI/DSI, plain+adjusted only
-snakemake all_cores_all        # contrast + raster + OSI/DSI, all input types
-
-# Sparsity
-snakemake all_nll_sparsity           # lifetime + population sparsity, all seeds
-snakemake plot_population_sparsity   # population sparsity plots
-snakemake plot_lifetime_sparsity     # lifetime sparsity plots
-
-# Spectral analysis
-snakemake all_spectral_analysis      # compute spectra, all seeds
-snakemake all_spectral_plots         # plot spectra, all seeds
-snakemake aggregate_spectra          # aggregate across seeds
-snakemake aggregate_spectra_normalized
-snakemake all_spectral               # all of the above
-
-# Background weight adjustment
-snakemake bkg_adjustment
-
-# Single-network convenience
-snakemake all     # small/figures/OSI_DSI.png
-snakemake core_spikes
+# With TF-trained (checkpoint) weights — used for all oscillations-paper analyses
+snakemake core/output_checkpoint/spikes.h5
 ```
+
+The `checkpoint` network option uses TF-trained synaptic weights from
+`V1_GLIF_model_tf_training/`. All oscillations-paper simulations use this option.
 
 ---
 
-### Running a single model variant
+## Running model variants
 
-Pass `--config model_variant=<VARIANT>` to redirect all input files to
-`base_props_<VARIANT>/` and suffix all output directories with `_<VARIANT>`
-(e.g. `core_<VARIANT>/`, `core_nll_0_<VARIANT>/`), so they group by network name
-in the root — the same way the `base_props_*` input directories do.
+Each model variant modifies a subset of synaptic or structural properties relative
+to the baseline `core`. Variants are defined by their `base_props_<VARIANT>/`
+directory and are activated by passing `--config model_variant=<VARIANT>` to
+Snakemake.
 
-**Aggregate targets** (all 10 seeds):
-
-```bash
-snakemake --config model_variant=i4Pvalb-like-i4Sst all_cores
-snakemake --config model_variant=L4-e2e-syn-as-L6 all_cores_all
-snakemake --config model_variant=PV-like-Sst all_spectral
-```
-
-**Single-network targets** work with a variant too — suffix the network name
-with `_<VARIANT>` and pass the same variant via `--config`. The output lands in
-the isolated `<network>_<VARIANT>/` directory, so variants never overwrite each
-other or the default build:
+### Running a single variant
 
 ```bash
-# Spikes for one variant, one network
+# Spikes for one variant
 snakemake core_L4-Sst2e-as-L6/output_plain/spikes.h5 --config model_variant=L4-Sst2e-as-L6
 
-# Any single-network target (raster, contrast, OSI/DSI) works the same way
-snakemake core_0_L4-Sst2e-as-L6/output_adjusted/raster_and_spectra_by_tuning_angle.png --config model_variant=L4-Sst2e-as-L6
+# Any single-network target works the same way
+snakemake core_0_L4-Sst2e-as-L6/output_adjusted/raster_and_spectra_by_tuning_angle.png \
+    --config model_variant=L4-Sst2e-as-L6
 snakemake core_PV-like-Sst/figures/OSI_DSI_plain.png --config model_variant=PV-like-Sst
 ```
 
-> **CLI gotcha:** `--config` greedily consumes everything after it as
-> `key=value` pairs, so **put the target *before* `--config`** (as above), or
-> separate them with `--`:
+> **CLI gotcha:** `--config` greedily consumes everything after it as `key=value`
+> pairs, so **put the target *before* `--config`** (as above), or separate with `--`:
 > ```bash
 > snakemake --config model_variant=L4-Sst2e-as-L6 -- core_L4-Sst2e-as-L6/output_plain/spikes.h5
 > ```
-> `snakemake --config model_variant=X core_X/...` (target last, no `--`) fails
-> with *"Invalid config definition"* because the target is parsed as config.
 
-**How the variant redirect works.** The default props live in
-`base_props_default/`; `base_props` is a git-ignored *managed symlink*. On every
-invocation the Snakefile points `base_props` at the active source
-(`base_props_default` by default, `base_props_<VARIANT>/` under `--config`), so
-the many scripts that read hard-coded `base_props/...` paths pick up the correct
-files — including analysis-only targets whose upstream build is already cached.
-Only one variant's `base_props` can be active at a time, so build/refresh each
-variant in its own `snakemake` invocation (don't build multiple variants in a
-single run).
+**How the variant redirect works.** The default props live in `base_props_default/`;
+`base_props` is a git-ignored *managed symlink*. On every invocation the Snakefile
+points `base_props` at the active source directory, so scripts that read hard-coded
+`base_props/…` paths pick up the correct files automatically. Only one variant's
+`base_props` can be active at a time — build each variant in its own `snakemake`
+invocation.
 
-**TF-training synaptic properties (`tf_props`).** The `tf_alpha_params` and
-`tf_basis_functions` rules produce the synaptic basis data used by the separate
-`V1_GLIF_model_tf_training/` training code. Because some variants have different
-synaptic properties, these outputs are written to a per-variant directory:
-`tf_props/` for the default and `tf_props_<VARIANT>/` under `--config` (the
-scripts honor `$TF_PROPS_DIR`, which the Snakefile sets automatically):
+**TF-training synaptic properties.** Because some variants have different synaptic
+properties, TF-training outputs are written to `tf_props_<VARIANT>/` (the scripts
+honor `$TF_PROPS_DIR`, set automatically by the Snakefile):
 
 ```bash
-snakemake tf_props_L4-Sst2e-as-L6/basis_function_weights.csv --config model_variant=L4-Sst2e-as-L6
+snakemake tf_props_L4-Sst2e-as-L6/basis_function_weights.csv \
+    --config model_variant=L4-Sst2e-as-L6
 ```
 
-To train that variant, copy `tau_basis.npy` and `basis_function_weights.csv`
-from `tf_props_<VARIANT>/` into a `V1_GLIF_model_tf_training/synaptic_data_<VARIANT>/`
-folder you create, then pass `--synaptic_data_dir synaptic_data_<VARIANT>` to the
-training script (see that repo's README). These folders are created and specified
-manually — they are intentionally not auto-linked.
-
-Available model variants:
-
-| Variant name | Source directory |
-|---|---|
-| `i4Pvalb-like-i4Sst` | `base_props_i4Pvalb-like-i4Sst/` |
-| `i4Sst-like-i4Pvalb` | `base_props_i4Sst-like-i4Pvalb/` |
-| `L4-cell-density-as-L6` | `base_props_L4-cell-density-as-L6/` |
-| `L4-cell-vol-dens-conn-as-L6` | `base_props_L4-cell-vol-dens-conn-as-L6/` |
-| `L4-cell-volume-density-as-L6` | `base_props_L4-cell-volume-density-as-L6/` |
-| `L4-connectivity-as-L6` | `base_props_L4-connectivity-as-L6/` |
-| `L4-e2e-syn-as-L6` | `base_props_L4-e2e-syn-as-L6/` |
-| `L4-e2i-syn-as-L6` | `base_props_L4-e2i-syn-as-L6/` |
-| `L4-i2e-syn-as-L6` | `base_props_L4-i2e-syn-as-L6/` |
-| `L4-Pvalb2e-as-L6` | `base_props_L4-Pvalb2e-as-L6/` |
-| `L4-Pvalb2e-syn-lat-as-L6` | `base_props_L4-Pvalb2e-syn-lat-as-L6/` |
-| `L4-Pvalb2e-syn-tau-amp-as-L6` | `base_props_L4-Pvalb2e-syn-tau-amp-as-L6/` |
-| `L4-Sst2e-as-L6` | `base_props_L4-Sst2e-as-L6/` |
-| `L4-Sst2e-syn-lat-as-L6` | `base_props_L4-Sst2e-syn-lat-as-L6/` |
-| `L4-Sst2e-syn-tau-amp-as-L6` | `base_props_L4-Sst2e-syn-tau-amp-as-L6/` |
-| `L4-syn-as-L6-syn` | `base_props_L4-syn-as-L6-syn/` |
-| `L4-syn-PSP-as_L6` | `base_props_L4-syn-PSP-as_L6/` |
-| `L4-syn-weights-as-L6` | `base_props_L4-syn-weights-as-L6/` |
-| `L4-Vip2e-syn-lat-as-L6` | `base_props_L4-Vip2e-syn-lat-as-L6/` |
-| `L4-Vip2e-syn-tau-amp-as-L6` | `base_props_L4-Vip2e-syn-tau-amp-as-L6/` |
-| `L4-weights-as-L6` | `base_props_L4-weights-as-L6/` |
-| `L6-as-L4` | `base_props_L6-as-L4/` |
-| `L6-syn-as-L4-syn` | `base_props_L6-syn-as-L4-syn/` |
-| `L6-syn-as-L4-syn-PSP` | `base_props_L6-syn-as-L4-syn-PSP/` |
-| `L6-syn-as-L4-syn-v2` | `base_props_L6-syn-as-L4-syn-v2/` |
-| `L6-syn-as-L4-syn-v3` | `base_props_L6-syn-as-L4-syn-v3/` |
-| `PV-like-Sst` | `base_props_PV-like-Sst/` |
-| `PV-syn-like-Sst-syn` | `base_props_PV-syn-like-Sst-syn/` |
-| `Sst-like-PV` | `base_props_Sst-like-PV/` |
-
----
-
-### Building several variants (sweep script)
-
-A variant can only be built one-at-a-time (the `base_props` symlink and the shared
-`glif_props/`, `cell_types/`, `glif_models/`, `glif_requisite/` dirs hold a single
-variant at a time), so multiple variants cannot be combined into one `snakemake`
-run or parallelized. To build `core_<variant>/output_plain/spikes.h5` for a set of
-variants **sequentially**, use the helper script (edit the `VARIANTS` list inside
-to choose which):
+### Building several variants sequentially (sweep script)
 
 ```bash
 conda activate new_v1
-./build_selected_variant_core_spikes.sh                   # cores from profiles/default (8)
-./build_selected_variant_core_spikes.sh --cores 16        # extra snakemake flags pass through
+./build_selected_variant_core_spikes.sh          # default core seeds (8 cores)
+./build_selected_variant_core_spikes.sh --cores 16
 ./build_selected_variant_core_spikes.sh --rerun-incomplete
 ```
 
-It runs `snakemake core_<v>/output_plain/spikes.h5 --config model_variant=<v>` for
-each variant, logs to `logs_variant_sweep/<v>.log`, and prints a pass/fail summary.
-Re-running is safe — already-built variants are skipped. (It must be run directly,
-not via a `snakemake` rule, which would deadlock on the working-directory lock.)
+Edit the `VARIANTS` list inside the script to choose which variants to build.
+Re-running is safe — already-built variants are skipped.
 
 ### Multi-variant aggregate targets
 
-These rules collect outputs across **all 29 variants × 10 seeds**. Each variant's
-outputs must be built first (see above) before these aggregate rules can find the files.
+These rules collect outputs across all 29 variants × 10 seeds. Each variant must be
+built before these aggregate targets can find its files.
 
 ```bash
-# Raster plots for every variant × seed × input_type
-snakemake all_variants_cores_nll_rasters
+snakemake all_variants_cores_nll_rasters         # raster plots, all variants × seeds × input_type
+snakemake all_variants_cores_nll_contrast_plots  # contrast response plots
+snakemake all_variants_core_nll_odsi_plots       # OSI/DSI plots
+snakemake all_variants_cores_nll_spikes          # spike outputs (plain + adjusted)
+snakemake all_variants_spectral_analysis         # spectral analysis
+snakemake all_variants_all                       # all primary analyses
+```
 
-# Contrast response plots for every variant × seed
-snakemake all_variants_cores_nll_contrast_plots
+### Available model variants
 
-# OSI/DSI plots for every variant × seed
-snakemake all_variants_core_nll_odsi_plots
+| Variant name | What is changed |
+|---|---|
+| `i4Pvalb-like-i4Sst` | L4 Pvalb cells receive L4 Sst-like inputs |
+| `i4Sst-like-i4Pvalb` | L4 Sst cells receive L4 Pvalb-like inputs |
+| `L4-cell-density-as-L6` | L4 cell density set to L6 values |
+| `L4-cell-vol-dens-conn-as-L6` | L4 cell volume density and connectivity as L6 |
+| `L4-cell-volume-density-as-L6` | L4 cell volume density as L6 |
+| `L4-connectivity-as-L6` | L4 connectivity as L6 |
+| `L4-e2e-syn-as-L6` | L4 E→E synaptic properties as L6 |
+| `L4-e2i-syn-as-L6` | L4 E→I synaptic properties as L6 |
+| `L4-i2e-syn-as-L6` | L4 I→E synaptic properties as L6 |
+| `L4-Pvalb2e-as-L6` | L4 Pvalb→E synaptic properties as L6 |
+| `L4-Pvalb2e-syn-lat-as-L6` | L4 Pvalb→E synaptic latency as L6 |
+| `L4-Pvalb2e-syn-tau-amp-as-L6` | L4 Pvalb→E synaptic tau and amplitude as L6 |
+| `L4-Sst2e-as-L6` | L4 Sst→E synaptic properties as L6 |
+| `L4-Sst2e-syn-lat-as-L6` | L4 Sst→E synaptic latency as L6 |
+| `L4-Sst2e-syn-tau-amp-as-L6` | L4 Sst→E synaptic tau and amplitude as L6 |
+| `L4-syn-as-L6-syn` | All L4 synaptic properties as L6 |
+| `L4-syn-PSP-as_L6` | L4 synaptic PSP amplitude as L6 |
+| `L4-syn-weights-as-L6` | L4 synaptic weights as L6 |
+| `L4-Vip2e-syn-lat-as-L6` | L4 Vip→E synaptic latency as L6 |
+| `L4-Vip2e-syn-tau-amp-as-L6` | L4 Vip→E synaptic tau and amplitude as L6 |
+| `L4-weights-as-L6` | L4 connection weights as L6 |
+| `L6-as-L4` | L6 cells replaced with L4 models |
+| `L6-syn-as-L4-syn` | L6 synaptic properties as L4 |
+| `L6-syn-as-L4-syn-PSP` | L6 synaptic PSP as L4 |
+| `L6-syn-as-L4-syn-v2` | L6 synaptic properties as L4 (v2) |
+| `L6-syn-as-L4-syn-v3` | L6 synaptic properties as L4 (v3) |
+| `PV-like-Sst` | PV cells given Sst-like properties |
+| `PV-syn-like-Sst-syn` | PV synaptic properties as Sst |
+| `Sst-like-PV` | Sst cells given PV-like properties |
 
-# Spike outputs for every variant × seed (plain + adjusted)
-snakemake all_variants_cores_nll_spikes
+---
 
-# Spectral analysis for every variant × seed
-snakemake all_variants_spectral_analysis
+## Simulation job scripts
 
-# All primary analyses across every variant
-snakemake all_variants_all
+Job-generation scripts live in the model root and write SLURM batch scripts +
+per-trial JSON config files into `<network>/jobs/` and `<network>/configs/`.
+
+All scripts default `--core_dir` to `<model_root>/core` so that model variant
+networks reuse the filternet (LGN spike) outputs already computed for the baseline
+`core` network. Pass `--core_dir <path>` to override.
+
+> **Note:** These scripts are run directly (not via Snakemake). Snakemake handles
+> network building and single-direction simulations; these scripts generate configs
+> for the 8-direction × 10-trial SLURM array jobs and other multi-condition sweeps.
+
+### Drifting gratings — 8 directions × 10 trials
+
+```bash
+# Generate SLURM job + per-trial configs for a variant network
+python make_filternet_jobs.py core_L4-e2e-syn-as-L6 --network_option checkpoint
+
+# Override filternet source (defaults to ./core)
+python make_filternet_jobs.py core_L4-e2e-syn-as-L6 --network_option checkpoint \
+    --core_dir /path/to/other/core
+
+# Generate filternet configs (outputs to <network>/filternet_8dir_10trials/)
+python make_filternet_jobs.py core --filternet
+```
+
+### Contrast response — temporal frequency 2 Hz
+
+```bash
+python make_contrast_jobs_tf2Hz.py core --network_option plain
+python make_contrast_jobs_tf2Hz.py core --filternet
+```
+
+### Gray screen (spontaneous activity)
+
+```bash
+python make_filternet_jobs_gray_screen.py core --network_option checkpoint
+python make_filternet_jobs_gray_screen.py core --filternet
+```
+
+### Natural movies
+
+```bash
+python make_filternet_jobs_natural_movies.py core natural_movie_one --network_option checkpoint
+python make_filternet_jobs_natural_movies.py core natural_movie_two --network_option checkpoint
+```
+
+### Natural scenes
+
+```bash
+python make_filternet_jobs_natural_scenes.py core --network_option checkpoint
+```
+
+### Optogenetic silencing — population
+
+```bash
+python make_filternet_jobs_opto_pop_silencing.py core --perturb_pop Pvalb --percentage 100
+python make_filternet_jobs_opto_pop_silencing.py core --perturb_pop Sst   --percentage 100
+python make_filternet_jobs_opto_pop_silencing.py core --perturb_pop Vip   --percentage 100
+```
+
+### Optogenetic silencing — layer
+
+```bash
+python make_filternet_jobs_opto_layer_scilencing.py core --perturb_layer L4
+python make_filternet_jobs_opto_layer_scilencing.py core --perturb_layer L1 L23 L5 L6
+# L4-only variant:
+python make_filternet_jobs_opto_layer_scilencing_L4.py core --perturb_pop i4Sst
 ```
 
 ---
 
-### Utility targets
+## Completed simulations
 
-```bash
-snakemake clean          # remove all generated outputs
-snakemake graph          # produce workflow_graph.pdf via Graphviz
-snakemake profile_build  # cProfile the build script
-snakemake clear_logs     # delete job log files
-```
+All outputs live under `<model_dir>/core/` for each model variant directory.
+`checkpoint` = TF-trained synaptic weights.
+
+### Baseline model (`biorealistic-v1-model/core`)
+
+| Simulation type | Output directory |
+|---|---|
+| Drifting gratings (8 dir × 10 trials) | `8dir_10trials_checkpoint` |
+| Temporal frequency tuning | `temporal_f_checkpoint` |
+| Contrast response (standard) | `contrasts_checkpoint` |
+| Gray screen / spontaneous | `3s_gs_10trials_checkpoint` |
+| Natural movie one | `natural_movie_one_10trials_checkpoint` |
+| Natural movie two | `natural_movie_two_10trials_checkpoint` |
+| Natural scenes | `natural_scenes_10trials_checkpoint` |
+| Square wave stimuli | `square_wave_10trials_checkpoint` |
+| L4 with L6 models | `8dir_10trials_L4_with_L6_models_checkpoint` |
+| Population silencing — per layer (i23/i4/i5/i6 × Pvalb/Sst/Vip, 100 %) | `8dir_10trials_-2000_silencing_<pop>_100perc_checkpoint` |
+| Population silencing — whole cortex (Pvalb/Sst/Vip, 100 %) | `8dir_10trials_-2000_silencing_{Pvalb,Sst,Vip}_100perc_checkpoint` |
+| L4-only population silencing (Pvalb/Sst/Vip, 10–100 %) | `8dir_10trials_onlyL4_-2000_silencing_i4{Pvalb,Sst,Vip}_{perc}_checkpoint` |
+| Layer silencing — individual layers (L1, L23, L4, L5, L6) | `8dir_10trials_opto_layer_silencing_<layer>_-2000_checkpoint` |
+| Layer silencing — pairs and triples | `8dir_10trials_opto_layer_silencing_<layers>_-2000_checkpoint` |
+| L4 with L6 models + layer silencing | `8dir_10trials_L4_with_L6_models_opto_layer_silencing_*_checkpoint` |
+
+### Model variants — completed simulations
+
+All variants share the baseline `core` filternet / LGN inputs. Each ran:
+
+| Simulation | Output directory |
+|---|---|
+| Drifting gratings (8 dir × 10 trials) | `8dir_10trials_checkpoint` |
+| Layer silencing L1+L23+L5+L6 | `8dir_10trials_opto_layer_silencing_L1_L23_L5_L6_-2000_checkpoint` |
+
+Variants with these outputs:
+`i4Pvalb-like-i4Sst`, `i4Sst-like-i4Pvalb`, `L4-cell-vol-dens-conn-as-L6`,
+`L4-cell-volume-density-as-L6`, `L4-connectivity-as-L6`, `L4-e2e-syn-as-L6`,
+`L4-e2i-syn-as-L6`, `L4-i2e-syn-as-L6`, `L4-Pvalb2e-as-L6`,
+`L4-Pvalb2e-syn-lat-as-L6`, `L4-Pvalb2e-syn-tau-amp-as-L6`, `L4-Sst2e-as-L6`,
+`L4-Sst2e-syn-lat-as-L6`, `L4-Sst2e-syn-tau-amp-as-L6`, `L4-syn-as-L6-syn`,
+`L4-syn-PSP-as_L6`, `L4-Vip2e-syn-lat-as-L6`, `L4-Vip2e-syn-tau-amp-as-L6`.
+
+Additional simulations for selected variants:
+
+**`L6-as-L4`** — `8dir_10trials_L6_with_L4_models_checkpoint`, layer silencing
+L1+L23+L4+L5 and L1+L23+L5+L6, LGN→L6 weight perturbations ×2/×5/×10.
+
+**`L6-syn-as-L4-syn`** — layer silencing L1+L23+L4+L5 and L1+L23+L5+L6, LGN→L6
+weight perturbations ×2/×5/×10/×20 each with and without silencing.
+
+**`L6-syn-as-L4-syn-v2`** — layer silencing L1+L23+L4+L5 and L1+L23+L5+L6.
+
+**`PV-like-Sst`** — layer silencing L1+L23+L5+L6 only (no baseline 8dir run).
+
+---
+
+## Analysis scripts
+
+All analysis scripts are located in `biorealistic-v1-model/` (the previous model
+directory) and operate on spike outputs from the simulations above.
+
+| Script | What it analyses |
+|---|---|
+| `analysis_memory_efficient.py` | Baseline drifting-grating MUA power spectrum |
+| `analysis_memory_efficient_-2000.py` | Layer-by-layer optogenetic silencing (−2000 pA) |
+| `analysis_memory_efficient_-2000_v2.py` | Same, revised version |
+| `analysis_memory_efficient_-2000_lgn2L6_pertb.py` | LGN→L6 weight perturbations + silencing |
+| `analysis_memory_efficient_silencing_inh_pop.py` | Inhibitory population silencing |
+| `analysis_memory_efficient_L4only_silence_inh.py` | L4-only inhibitory silencing |
+| `analysis_memory_efficient_gray_screen.py` | Spontaneous / gray-screen activity |
+| `analysis_memory_efficient_other_visual_stim.py` | Natural movies and natural scenes |
+| `analysis_memory_efficient_PSS.py` | Power spectral shift (PSS) metric |
+| `analysis_clean_PSS.py` | PSS analysis (cleaned version) |
+| `analysis_clean_PSS_allfreq.py` | PSS across all frequencies |
+| `analysis_mua_power_dg_allcontrasts.py` | MUA power × contrast |
+| `analysis_mua_power_dg_temporal_fs.py` | MUA power × temporal frequency |
+| `analysis_opto_memory_efficient.py` | Opto silencing combined analysis |
+| `analysis_ppc_mua_cross_layer.py` | Cross-layer PPC of band-limited MUA |
+| `analysis_ppc_per_neuron_cross_layer.py` | Per-neuron cross-layer PPC |
+| `analysis_lgn_unit_power_spectrum.py` | LGN unit power spectra |
+| `contrast_analysis.py` / `contrast_quantification.py` | Contrast response quantification |
+| `contrast_aggregated_plots.py` / `contrast_spike_aggregation.py` | Contrast response plots |
+| `calculate_odsi.py` / `calculate_odsi_opto_silencing.py` | OSI/DSI (baseline and silencing) |
+| `calculate_power_band_areas.py` | Gamma / alpha-beta band power |
+| `emd_analysis_comprehensive.py` | Earth mover's distance between conditions |
+| `run_ppc_analysis.py` | PPC analysis pipeline |
 
 ---
 
 ## Main contributors
 
+* Beatriz Herrera
 * Shinya Ito
 * Darrell Haufler
 * Kael Dai
