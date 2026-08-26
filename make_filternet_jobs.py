@@ -25,15 +25,20 @@ Let's break down into steps
 """
 
 import json
+import os
 import numpy as np
 import argparse
 import pathlib
+
+_default_core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
 
 
 def sbatch_boilerplate(file, logdir, config_counts, memory=32, jobs=1, threads=8):
     time = "2:00:00" if (jobs * threads) <= 4 else "1:00:00"
 
     file.write("#!/bin/bash\n")
+    file.write("#SBATCH --mail-type=ALL\n")
+    file.write("#SBATCH --mail-user=beatriz.herrera@alleninstitute.org\n")
     file.write("#SBATCH --partition=d3\n")
     # if full_memory:  # full model needs a lot of memory
     #     file.write("#SBATCH -N1 -c1 -n4\n")
@@ -56,7 +61,8 @@ def sbatch_boilerplate(file, logdir, config_counts, memory=32, jobs=1, threads=8
     file.write(f"#SBATCH --array=0-{config_counts-1}\n\n")
     file.write(
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/activate_custom_nest_sdk_develop.sh\n"
-        "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/miniconda3/bin/activate new_v1\n"
+        # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/miniconda3/bin/activate new_v1\n"
+        "source /allen/programs/mindscope/workgroups/realistic-model/beatriz.herrera/miniconda3/bin/activate v1-SstTac1-model-PSS\n"
     )
     # file.write(
     #     "module use /allen/programs/braintv/workgroups/modelingsdk/modulefiles\n"
@@ -99,12 +105,26 @@ def memory_jobs(basedir):
     return memory, jobs, threads
 
 
-def write_job(basedir, config_counts, modfile):
+def write_job(
+    basedir, config_counts, modfile, network_folder="network", network_option="adjusted"
+):
     configdir = basedir + "/configs/8dir_10trials"
     jobdir = basedir + "/jobs"
     logdir = jobdir + "/logs"
 
-    with open(jobdir + "/8dir_10trials.sh", "w") as f:
+    file_name = jobdir + "/8dir_10trials"
+
+    if network_folder != "network":
+        file_name = jobdir + f"/8dir_10trials_{network_folder}"
+        configdir = configdir + f"_{network_folder}"
+
+    if network_option != "adjusted":
+        file_name += f"_{network_option}"
+        configdir = configdir + f"_{network_option}"
+
+    file_name += ".sh"
+
+    with open(file_name, "w") as f:
         memory, jobs, threads = memory_jobs(basedir)
         # if "full" in basedir:
         #     memory = 60
@@ -128,11 +148,11 @@ def write_job(basedir, config_counts, modfile):
             f.write(
                 # f"srun --mpi=pmi2 python run_pointnet.py {config_array} -m {modfile}"
                 # f"mpirun -np {jobs} python run_pointnet.py {config_array} -m {modfile}"
-                f"python run_pointnet.py {config_array} -m {modfile} -n {threads}"
+                f"python run_pointnet.py {config_array} -m {modfile} -n {threads}\n"
             )
         else:
             # f.write(f"srun --mpi=pmi2 python run_pointnet.py {config_array}")
-            f.write(f"python run_pointnet.py {config_array} -n {threads}")
+            f.write(f"python run_pointnet.py {config_array} -n {threads}\n")
 
 
 def write_filternet_job(basedir, config_counts):
@@ -156,10 +176,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Making a cluster-ready job file.")
     parser.add_argument("basedir", type=str)
     parser.add_argument("--filternet", action="store_true")
+    parser.add_argument("--network_folder", type=str, default="network")
+    parser.add_argument(
+        "--network_option", type=str, default="checkpoint"
+    )  # checkpoint | adjusted
     parser.add_argument(
         "-m", "--modfile", type=str, default=None, help="The modulation file to use."
     )
+    parser.add_argument(
+        "--core_dir", type=str, default=_default_core_dir,
+        help="Path to a core network whose filternet/bkg outputs will be reused as LGN "
+             "input for main-simulation jobs. Ignored when --filternet is set (filternet "
+             "outputs always go to the network's own $BASE_DIR). "
+             f"Default: {_default_core_dir}"
+    )
     args = parser.parse_args()
+
+    # filternet configs write output to this network's own dir; main-sim configs
+    # read LGN input from the shared core filternet dir.
+    filternet_base = "$BASE_DIR" if args.filternet else args.core_dir
 
     filterdir = args.basedir + "/filternet_8dir_10trials"
     if args.filternet:
@@ -167,9 +202,26 @@ if __name__ == "__main__":
         outdir = filterdir
         configdir = args.basedir + "/configs/filternet_8dir_10trials"
     else:
-        base_config = args.basedir + "/configs/config.json"
-        outdir = args.basedir + "/output_8dir_10trials"
-        configdir = args.basedir + "/configs/8dir_10trials"
+        if args.network_folder == "network":
+            base_config = (
+                args.basedir + "/configs/config_adjusted.json"
+                if args.network_option == "adjusted"
+                else args.basedir + "/configs/config_checkpoint.json"
+            )
+            outdir = "8dir_10trials"
+            configdir = args.basedir + "/configs/8dir_10trials"
+        else:
+            base_config = (
+                args.basedir + "/configs/config_adjusted.json"
+                if args.network_option == "adjusted"
+                else args.basedir + "/configs/config_checkpoint.json"
+            )
+            outdir = "8dir_10trials_" + args.network_folder
+            configdir = args.basedir + "/configs/8dir_10trials_" + args.network_folder
+
+        outdir = outdir + f"_{args.network_option}"
+        # print("outdir", outdir)
+        configdir = configdir + f"_{args.network_option}"
 
     jobdir = args.basedir + "/jobs"
     logdir = args.basedir + "/jobs/logs"
@@ -186,12 +238,14 @@ if __name__ == "__main__":
 
     for angle in angles:
         for trial in trials:
-            filterdir_indv = (
-                f"$BASE_DIR/filternet_8dir_10trials/angle{int(angle)}_trial{trial}"
-            )
-            outdir_indv = f"$BASE_DIR/8dir_10trials/angle{int(angle)}_trial{trial}"
+            filterdir_indv = f"{filternet_base}/filternet_8dir_10trials/angle{int(angle)}_trial{trial}"
+            outdir_indv = f"$BASE_DIR/{outdir}/angle{int(angle)}_trial{trial}"
 
             js["manifest"]["$BASE_DIR"] = "${configdir}/../.."
+            if args.network_folder != "network":
+                js["manifest"][
+                    "$NETWORK_DIR"
+                ] = f"$BASE_DIR/network_{args.network_folder}"
             if args.filternet:
                 js["inputs"]["LGN_spikes"]["theta"] = angle
                 js["inputs"]["LGN_spikes"]["trial"] = trial
@@ -203,9 +257,7 @@ if __name__ == "__main__":
                 config_name = configdir + f"/config_{config_counts}.json"
                 # if the config file contains background input, change the input file
                 if "$BKGINPUT_DIR" in js["manifest"].keys():
-                    bkgdir_indv = (
-                        f"$BASE_DIR/bkg_8dir_10trials/angle{int(angle)}_trial{trial}"
-                    )
+                    bkgdir_indv = f"{filternet_base}/bkg_8dir_10trials/angle{int(angle)}_trial{trial}"
                     js["manifest"]["$BKGINPUT_DIR"] = bkgdir_indv
             config_counts += 1
 
@@ -214,4 +266,10 @@ if __name__ == "__main__":
     if args.filternet:
         write_filternet_job(args.basedir, config_counts)
     else:
-        write_job(args.basedir, config_counts, args.modfile)
+        write_job(
+            args.basedir,
+            config_counts,
+            args.modfile,
+            network_folder=args.network_folder,
+            network_option=args.network_option,
+        )
