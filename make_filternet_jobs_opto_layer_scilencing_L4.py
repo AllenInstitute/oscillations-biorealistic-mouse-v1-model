@@ -64,7 +64,7 @@ def sbatch_boilerplate(file, logdir, config_counts, memory=32, jobs=1, threads=8
     file.write(
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/activate_custom_nest_sdk_develop.sh\n"
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/miniconda3/bin/activate new_v1\n"
-        "source /allen/programs/mindscope/workgroups/realistic-model/beatriz.herrera/miniconda3/bin/activate v1-SstTac1-model-PSS\n"
+        "source /allen/programs/mindscope/workgroups/realistic-model/beatriz.herrera/miniconda3/bin/activate new_v1\n"
     )
     # file.write(
     #     "module use /allen/programs/braintv/workgroups/modelingsdk/modulefiles\n"

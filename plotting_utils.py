@@ -34,7 +34,10 @@ def form_network(config_file, infer=False):
         # in this case, config_js is the file pat, so trim the file name, and guess
         # the main directory name
         # pick up the top directory
-        net_name = config_file.split("/")[0]
+        if config_file.startswith("/allen/programs/mindscope/workgroups/entrainment/beatriz.herrera/osc-biorealistic-v1-model"):
+            net_name = config_file.split("/configs")[0]
+        else:
+            net_name = config_file.split("/")[0]
         print(f"inferring network from {net_name}")
         net = File(
             f"{net_name}/network/v1_nodes.h5", f"{net_name}/network/v1_node_types.csv"
@@ -54,7 +57,18 @@ def get_spikes(config_file, infer=False):
         spike_file_name = f"{dir_name}/spikes.csv"
     else:
         config_js = read_config(config_file)
-        spike_file_name = config_js["output"]["spikes_file_csv"]
+        if config_file.startswith("/allen/programs/mindscope/workgroups/entrainment/beatriz.herrera/osc-biorealistic-v1-model"):
+            spike_file_name = os.path.join(
+                config_file.split("/configs")[0],
+                config_js["manifest"]["$OUTPUT_DIR"].split("$BASE_DIR/")[-1],
+                config_js["output"]["spikes_file_csv"],
+            )
+        else:
+            spike_file_name = os.path.join(
+                config_file.split("/")[0],
+                config_js["manifest"]["$OUTPUT_DIR"].split("$BASE_DIR/")[-1],
+                config_js["output"]["spikes_file_csv"],
+            )
     spike_df = pd.read_csv(spike_file_name, sep=" ", index_col=2)
     return spike_df
 
@@ -67,15 +81,30 @@ def identify_cell_type(pop_name: str):
         return re.search(r"\d+(.*)", pop_name).groups()[0]
 
 
+def identify_layer(pop_name: str):
+    if re.findall("[0-9]+", pop_name)[0] == "23":
+        return "L2/3"
+    else:
+        return "L" + re.findall("[0-9]+", pop_name)[0]
+
+
 # this is destructive method (adds columns to v1df)
 def determine_sort_position(v1df, sortby):
     if v1df["location"].iloc[0] == "Cortex":  # Old model
         layer = v1df["pop_name"].apply(lambda x: x[1])
         v1df["location"] = layer
     if sortby is not None:
-        sorter = ["location", "Cell Type", sortby]
+        sorter = [
+            "location",
+            "cell_type" if "cell_type" in v1df.columns else "Cell Type",
+            sortby,
+        ]
     else:
-        sorter = ["location", "Cell Type"]
+        sorter = [
+            "location",
+            "cell_type" if "cell_type" in v1df.columns else "Cell Type",
+        ]
+
     reset_v1 = v1df.sort_values(sorter).reset_index()
     # reset_v1 = v1df.sort_values(["location", "Cell Type", "x"]).reset_index()
     # reset_v1 = v1df.sort_values(["location", "Cell Type"]).reset_index()
@@ -91,17 +120,67 @@ def determine_layer_divisions(v1df):
     return dict(zip(layers, divisions))
 
 
-def plot_raster(
-    config_file,
-    s=1,
-    radius=400.0,
-    sortby=None,
-    infer=True,
-    grouping="full",
-    legend_markerscale=None,
-    layer_label_fontsize=None,
-    **kwarg,
-):
+def fr_for_all(v1df, spike_df, t_min, t_max):
+    spike_baseline = spike_df[spike_df.timestamps <= t_min]
+    spike_stimulus = spike_df[
+        (spike_df.timestamps > t_min) & (spike_df.timestamps <= t_max)
+    ]
+    count_baseline = pd.Index(spike_baseline.index).value_counts()
+    count_stimulus = pd.Index(spike_stimulus.index).value_counts()
+    v1df["fr_baseline"] = 0
+    v1df["fr_stimulus"] = 0
+    v1df.loc[count_baseline.index, "fr_baseline"] = count_baseline.values / (
+        t_min * 1e-3
+    )
+    v1df.loc[count_stimulus.index, "fr_stimulus"] = count_stimulus.values / (
+        (t_max - t_min) * 1e-3
+    )
+    return v1df
+
+
+def data_organize(config_file, radius=400.0, t_min=500, t_max=3000):
+    # config_js = read_config(config_file)
+    net = form_network(config_file, infer=True)
+    spike_df = get_spikes(config_file)
+
+    v1df = net.nodes["v1"].to_dataframe()
+    v1df = pick_core(v1df, radius=radius)
+    v1df["cell_type"] = v1df["pop_name"].apply(identify_cell_type)
+    v1df["layer"] = v1df["pop_name"].apply(identify_layer)
+    v1df["sort_position"] = determine_sort_position(v1df, "tuning_angle")
+
+    spike_df = spike_df.loc[spike_df.index.isin(v1df.index)]
+    spike_df["sorted_ID"] = v1df["sort_position"].loc[spike_df.index]
+    spike_df["cell_type"] = v1df["cell_type"].loc[spike_df.index]
+    spike_df["node_type_ID"] = v1df["node_type_id"].loc[spike_df.index]
+    spike_df["layer"] = v1df["layer"].loc[spike_df.index]
+
+    v1df = fr_for_all(v1df, spike_df, t_min, t_max)
+    return v1df, spike_df
+
+
+def check_movie(movie_path, time=(0, 3000), ymax=1, ax=[]):
+    movie_array = np.load(movie_path)
+    mean_intensity = np.mean(movie_array, axis=(1, 2))
+
+    # plt.figure()
+    if ax == []:
+        ax = plt.figure()
+    ax.bar(range(500), np.ones(500) * ymax, width=1, alpha=0.05, color="gray")
+    ax.bar(
+        range(500, len(mean_intensity)),
+        (1 - mean_intensity[500:]) / 2 * ymax,
+        width=1,
+        alpha=0.1,
+        color="black",
+    )
+    # plt.plot(mean_intensity*ymax)
+    # plt.show()
+
+    # print(movie_array.shape)
+
+
+def plot_raster(config_file, s=1, radius=400.0, sortby=None, infer=True, **kwarg):
     # try:
     #     config_js = read_config(config_file)
     #     net = form_network(config_js)
@@ -115,7 +194,7 @@ def plot_raster(
 
     # defaulting to infer. because if I change the directory name, it tries to read from the new one.
     spike_df, hue_order, color_dict, layer_divisions = make_figure_elements(
-        config_file, radius, sortby, infer, grouping
+        config_file, radius, sortby, infer
     )
 
     ax = sns.scatterplot(
@@ -130,69 +209,281 @@ def plot_raster(
     )
     # change the x label to Time (ms)
     ax.set_xlabel("Time (ms)")
-    # remove y label since we now show layer ticks with counts
-    ax.set_ylabel("")
     ax.invert_yaxis()
-    # Determine fontsize for layer labels
-    _lbl_fs = layer_label_fontsize if layer_label_fontsize is not None else plt.rcParams.get("font.size", 10)
-    # Draw layer division lines
     for name, div in layer_divisions.items():
         ax.axhline(y=div, color="black", linestyle="-", linewidth=0.3)
+        ax.text(
+            0,
+            div,
+            name,
+            horizontalalignment="left",
+            verticalalignment="bottom",
+            fontsize=9,
+        )
 
-    # Build y-ticks and labels with counts per layer, aligned at the division lines
-    layers_order = [k for k in layer_divisions.keys() if k != ""]
-    ticks, labels = [], []
-    prev = layer_divisions.get("", 0)
-    for name in layers_order:
-        this = layer_divisions[name]
-        count = max(int(this - prev), 0)
-        ticks.append(this)
-        # labels.append(f"{name}\n(n={count})")
-        labels.append(f"{name}")
-        prev = this
-
-    if ticks:
-        ax.set_yticks(ticks)
-        ax.set_yticklabels(labels)
-        for t in ax.get_yticklabels():
-            t.set_verticalalignment("bottom")
-            t.set_fontsize(_lbl_fs)
-
-    # Add total neuron count at top-left, slightly above plotting area
-    if layer_divisions:
-        try:
-            total_n = max(layer_divisions.values())
-        except Exception:
-            total_n = None
-        if total_n is not None and total_n > 0:
-            annot_fs = max(int(_lbl_fs * 0.8), 8)
-            ax.text(
-                0.0,
-                1.02,
-                f"N={total_n}",
-                transform=ax.transAxes,
-                ha="left",
-                va="bottom",
-                fontsize=annot_fs,
-            )
-
-    if legend_markerscale is not None:
-        leg = ax.legend(loc="upper right", scatterpoints=1, markerscale=legend_markerscale)
-    else:
-        leg = ax.legend(loc="upper right")
-    # Ensure legend text sizes are consistent with base font
-    if leg is not None:
-        for t in leg.get_texts():
-            t.set_fontsize(_lbl_fs)
-        if leg.get_title() is not None:
-            leg.get_title().set_fontsize(_lbl_fs)
-
-    # Ensure tick and axis label sizes match the base font
-    ax.tick_params(axis="both", labelsize=_lbl_fs)
-    ax.xaxis.label.set_size(_lbl_fs)
-    ax.yaxis.label.set_size(_lbl_fs)
+    ax.legend(loc="upper right")
 
     return ax
+
+
+def plot_raster_movie(
+    config_file,
+    freq,
+    cell_types,
+    cell_labels,
+    color_order,
+    s=1,
+    radius=400.0,
+    bins=np.linspace(0, 3000, 101),
+    n_xticks=5,
+    ratio=[1, 15],
+    figsize=(8, 4),
+    legend=True,
+    **kwarg,
+):
+
+    v1df, spike_df = data_organize(config_file, radius)
+    spike_df["cell_labels"] = spike_df["cell_type"].map(cell_labels)
+
+    layer_divisions = determine_layer_divisions(v1df)
+
+    # color_order = ["tab:red", "tab:blue", "yellowgreen", "violet", "violet"]
+    color_dict = dict(zip(cell_labels.values(), color_order))
+    fig, axes = plt.subplots(
+        nrows=2, ncols=1, gridspec_kw={"height_ratios": ratio}, sharex=True, figsize=figsize, dpi=300
+    )
+    # fig.patch.set_facecolor("none")
+
+    try:
+        movie_array = np.load(
+            os.path.join(
+                config_file.split("/")[0],
+                "movies",
+                "flash." + freq + ".500ms_gs.npy",
+            )
+        )
+        mean_intensity = np.mean(movie_array, axis=(1, 2))
+        mean_intensity = mean_intensity / np.max(mean_intensity)
+        # axes[0].plot(mean_intensity, linewidth=0.5, color="black")
+        axes[0].bar(range(500), np.ones(500), width=1, alpha=0.5, color="gray")
+        axes[0].bar(
+            range(500, len(mean_intensity)),
+            (1 + mean_intensity[500:]) / 2,
+            width=1,
+            alpha=0.3,
+            color="white",
+        )
+        axes[0].bar(
+            range(500, len(mean_intensity)),
+            (1 - mean_intensity[500:]) / 2,
+            width=1,
+            alpha=1,
+            color="black",
+        )
+        axes[0].axhline(0, color="black", linewidth=1)
+        axes[0].axhline(1, color="black", linewidth=0.5)
+        axes[0].axvline(0, color="black", linewidth=1)
+        axes[0].axvline(3000, color="black", linewidth=1)
+        axes[0].axis("off")
+        # axes[0].set_xticks([])
+        axes[0].set_yticks([])
+    except:
+        # axes[0].axis("off")
+        # axes[0].set_xticks([])
+        xticks = np.arange(0, bins[-1], 3000)
+        axes[0].set_xticks(xticks)
+        axes[0].set_yticks([])
+        axes[0].spines["top"].set_visible(False)
+        axes[0].spines["left"].set_visible(False)
+        axes[0].spines["right"].set_visible(False)
+        pass
+
+    ax = axes[1]
+    sns.scatterplot(
+        ax=ax,
+        data=spike_df.query("cell_type in @cell_types"),
+        x="timestamps",
+        y="sorted_ID",
+        hue="cell_labels",
+        s=s,
+        hue_order=list(cell_labels.values()),
+        palette=color_dict,
+        linewidth=0,
+        alpha=0.3,
+        # **kwarg
+    )
+    ax.invert_yaxis()
+    for name, div in layer_divisions.items():
+        ax.axhline(y=div, color="black", linestyle="-", linewidth=0.3)
+        ax.text(
+            0,
+            div,
+            name,
+            horizontalalignment="left",
+            verticalalignment="bottom",
+            fontsize=14,
+            fontweight="bold",
+        )
+    ax.legend(loc="upper right")
+    # ax.legend(loc="upper right",bbox_to_anchor=(1.5, 1.5))
+    if not legend:
+        ax.get_legend().remove()
+    ax.set_xlim([bins[0], bins[-1]])
+    # if bins[-1] > 3005:
+    #     xticks = np.arange(0, bins[-1], 3000, dtype=int)
+    #     ax.set_xticks(xticks)
+    #     ax.set_xticklabels(xticks, fontsize=14)
+    # else:
+    xticks = np.arange(0, bins[-1], bins[-1] // n_xticks, dtype=int)
+    ax.set_xticks(xticks)
+    if n_xticks == 12:
+        labeled = set(np.arange(0, bins[-1], bins[-1] // 6, dtype=int))
+        ax.set_xticklabels(
+            [str(t) if t in labeled else "" for t in xticks], fontsize=14
+        )
+    elif n_xticks < 7:
+        ax.set_xticklabels(xticks, fontsize=14)
+    else:
+        ax.set_xticklabels(xticks, fontsize=14, rotation=45)
+    yticks = ax.get_yticks()
+    ax.set_yticklabels(["{}".format(int(t/10000)) for t in yticks], fontsize=14)
+    ax.set_xlabel("Time [ms]", fontsize=14)
+    ax.set_ylabel(r"Neuron ID [x $10^{4}$]", fontsize=14)
+    # ax.set_yticks([])
+    ax.spines["top"].set_visible(False)
+    # ax.spines["left"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+
+    # _ = plot_pop_fr(config_file,v1df, spike_df, bins)
+
+    if "save_path" in kwarg:
+        save_path = kwarg["save_path"]
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.makedirs(os.path.dirname(save_path))
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Figure saved to {save_path}")
+
+    # plt.show()
+
+    return fig
+
+
+def plot_raster_interneurons(
+    config_file,
+    freq,
+    cell_types,
+    layers,
+    color_order,
+    s=1,
+    radius=400.0,
+    bins=np.linspace(0, 3000, 101),
+    ratio=[1, 15],
+    figsize=(8, 4),
+    legend=True,
+    **kwarg,
+):
+
+    v1df, spike_df = data_organize(config_file, radius)
+
+    v1df = v1df.query("cell_type in @cell_types")
+    v1_df_sort_position = v1df["sort_position"]
+    v1df.reset_index(inplace=True)
+
+    spike_df = spike_df.query("cell_type in @cell_types")
+    spike_df["sorted_ID"] = [
+        v1df.loc[sid == v1df["sort_position"].values, "sort_position"].index.values[0]
+        for sid in v1_df_sort_position.loc[spike_df.index].values
+    ]
+
+    layer_divisions = determine_layer_divisions(v1df)
+
+    # color_order = ["tab:red", "tab:blue", "yellowgreen", "violet", "violet"]
+    color_dict = dict(zip(cell_types, color_order))
+    fig, axes = plt.subplots(
+        nrows=2, ncols=1, height_ratios=ratio, sharex=True, figsize=figsize, dpi=300
+    )
+    # fig.patch.set_facecolor("none")
+
+    try:
+        movie_array = np.load(
+            os.path.join(
+                config_file.split("/")[0],
+                "movies",
+                "flash." + freq + ".500ms_gs.npy",
+            )
+        )
+        mean_intensity = np.mean(movie_array, axis=(1, 2))
+        mean_intensity = mean_intensity / np.max(mean_intensity)
+        # axes[0].plot(mean_intensity, linewidth=0.5, color="black")
+        axes[0].bar(range(500), np.ones(500), width=1, alpha=0.5, color="gray")
+        axes[0].bar(
+            range(500, len(mean_intensity)),
+            (1 + mean_intensity[500:]) / 2,
+            width=1,
+            alpha=0.3,
+            color="white",
+        )
+        axes[0].bar(
+            range(500, len(mean_intensity)),
+            (1 - mean_intensity[500:]) / 2,
+            width=1,
+            alpha=1,
+            color="black",
+        )
+        axes[0].axhline(0, color="black", linewidth=1)
+        axes[0].axhline(1, color="black", linewidth=0.5)
+        axes[0].axvline(0, color="black", linewidth=1)
+        axes[0].axvline(3000, color="black", linewidth=1)
+        axes[0].axis("off")
+        # axes[0].set_xticks([])
+        axes[0].set_yticks([])
+    except:
+        pass
+
+    ax = axes[1]
+    sns.scatterplot(
+        ax=ax,
+        data=spike_df.query("cell_type in @cell_types"),
+        x="timestamps",
+        y="sorted_ID",
+        hue="cell_type",
+        s=s,
+        hue_order=cell_types,
+        palette=color_dict,
+        linewidth=0,
+        alpha=0.3,
+        # **kwarg
+    )
+    ax.invert_yaxis()
+    for name, div in layer_divisions.items():
+        ax.axhline(y=div, color="black", linestyle="-", linewidth=0.3)
+        ax.text(
+            0,
+            div,
+            name,
+            horizontalalignment="left",
+            verticalalignment="bottom",
+            fontsize=10,
+        )
+    ax.legend(loc="upper right")
+    # ax.legend(loc="upper right",bbox_to_anchor=(1.5, 1.5))
+    if not legend:
+        ax.get_legend().remove()
+    ax.set_xlim([bins[0], bins[-1]])
+    ax.set_xlabel("Time [ms]")
+    ax.set_ylabel("Neuron #")
+    ax.set_yticks([])
+    ax.spines["top"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+
+    # _ = plot_pop_fr(config_file,v1df, spike_df, bins)
+
+    return fig
 
 
 def plot_fr_histogram(
@@ -244,52 +535,13 @@ def plot_fr_histogram(
     return ax
 
 
-def make_figure_elements(config_file, radius, sortby, infer, grouping="full"):
+def make_figure_elements(config_file, radius, sortby, infer):
     net = form_network(config_file, infer=infer)
     spike_df = get_spikes(config_file, infer=infer)
 
     v1df = net.nodes["v1"].to_dataframe()
-    if radius is not None:
-        v1df = pick_core(v1df, radius=radius)
-    # Map each pop_name to its canonical cell_type using the naming scheme CSV
-    import network_utils as nu
-    ctdf = nu.get_cell_type_table()  # index = pop_name
-    pop_to_celltype = ctdf["cell_type"]
-    pop_to_hex = ctdf[["cell_type", "hex"]].drop_duplicates().set_index("cell_type")["hex"]
-
-    # Use the mapping (fall back to generic categories if missing)
-    v1df["Cell Type"] = v1df["pop_name"].map(pop_to_celltype)
-    missing_mask = v1df["Cell Type"].isna()
-    if missing_mask.any():
-        # fallback to previous identify_cell_type for unseen pop_names
-        v1df.loc[missing_mask, "Cell Type"] = v1df.loc[missing_mask, "pop_name"].apply(identify_cell_type)
-
-    # If simplified grouping is requested, map to four categories before sorting
-    if grouping == "four":
-        # Determine layer number from pop_name to find L1 inhibitory
-        layer_num = v1df["pop_name"].str.extract(r"[ei](\d)").astype(int)[0]
-        base_labels = v1df["Cell Type"].astype(str)
-
-        def map_to_group(cell_type: str) -> str:
-            # Merge L5 IT/ET/NP into Exc
-            if cell_type in ("L5_IT", "L5_ET", "L5_NP"):
-                return "Exc"
-            if cell_type.endswith("_Exc") or cell_type == "Exc":
-                return "Exc"
-            if cell_type.endswith("_PV") or cell_type in ("Pvalb", "PV"):
-                return "PV"
-            if cell_type.endswith("_SST") or cell_type in ("Sst", "SST"):
-                return "SST"
-            if cell_type.endswith("_VIP") or cell_type in ("Vip", "Htr3a", "VIP"):
-                return "VIP"
-            return cell_type
-
-        grouped = base_labels.map(map_to_group)
-        grouped.loc[layer_num.eq(1) & ~base_labels.str.contains("Exc")] = "L1"
-
-        # Overwrite Cell Type for sorting and downstream labeling
-        v1df["Cell Type"] = grouped
-
+    v1df = pick_core(v1df, radius=radius)
+    v1df["Cell Type"] = v1df["pop_name"].apply(identify_cell_type)
     v1df["Sort Position"] = determine_sort_position(v1df, sortby)
 
     spike_df = spike_df.loc[spike_df.index.isin(v1df.index)]
@@ -297,45 +549,10 @@ def make_figure_elements(config_file, radius, sortby, infer, grouping="full"):
     spike_df["Sorted ID"] = v1df["Sort Position"].loc[spike_df.index]
     spike_df["Cell Type"] = v1df["Cell Type"].loc[spike_df.index]
 
-    # ---------------------------------------------
-    # Build palettes and labels
-    # ---------------------------------------------
-    if grouping == "four":
-        # Colors: use L2/3 colours for all layers
-        l23_keys = {
-            "Exc": "L2/3_Exc",
-            "PV": "L2/3_PV",
-            "SST": "L2/3_SST",
-            "VIP": "L2/3_VIP",
-        }
-        color_dict = {}
-        for k, canonical in l23_keys.items():
-            if canonical in pop_to_hex.index:
-                color_dict[k] = pop_to_hex.loc[canonical]
-        # L1 in neutral gray for visibility but equal brightness feel
-        color_dict["L1"] = "#9E9E9E"
-
-        # Keep order concise, put L1 first
-        order_pref = ["L1", "Exc", "PV", "SST", "VIP"]
-        present = list(spike_df["Cell Type"].dropna().unique())
-        hue_order = [k for k in order_pref if k in present]
-    else:
-        # Full palette: use CSV colours directly; add fallbacks for generic labels
-        color_dict = pop_to_hex.to_dict()
-        fallback_palette = {
-            'Exc': '#D61515',
-            'PV' : '#157C0C',
-            'SST': '#0C7979',
-            'VIP': '#8F40DF',
-        }
-        color_dict.update({
-            "Exc": fallback_palette["Exc"],
-            "Pvalb": fallback_palette["PV"],
-            "Sst": fallback_palette["SST"],
-            "Vip": fallback_palette["VIP"],
-            "Htr3a": fallback_palette["VIP"],
-        })
-        hue_order = list(color_dict.keys())
+    hue_order = ["Exc", "Pvalb", "Sst", "Vip", "Htr3a"]
+    color_order = ["tab:red", "tab:blue", "tab:olive", "tab:purple", "tab:purple"]
+    # color_order = ["tab:red", "tab:blue", "yellowgreen", "violet", "violet"]
+    color_dict = dict(zip(hue_order, color_order))
 
     layer_divisions = determine_layer_divisions(v1df)
     return spike_df, hue_order, color_dict, layer_divisions

@@ -31,6 +31,7 @@ model_variants = [
     "L4-Vip2e-syn-tau-amp-as-L6",
     "L6-as-L4",
     "L6-syn-as-L4-syn",
+    "L6-syn-as-L4-syn-PSP",
     "PV-like-Sst",
     "PV-syn-like-Sst-syn",
     "Sst-like-PV",
