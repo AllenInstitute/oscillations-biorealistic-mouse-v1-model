@@ -4,12 +4,12 @@
 .DS_Store
 .snakemake
 biorealistic-v1-model*/
-V1_GLIF_model*/
 *.err
 *.out
 eLife_Atle_paper/
 figs/
 h5browser
+tf_training_v1_model/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
