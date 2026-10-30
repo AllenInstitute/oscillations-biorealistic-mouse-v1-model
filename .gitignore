@@ -5,6 +5,7 @@
 Thumbs.db
 .snakemake
 biorealistic-v1-model*/
+!/biorealistic-v1-model-latest/
 *.err
 *.out
 eLife_Atle_paper/
