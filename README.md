@@ -2,6 +2,8 @@
 
 Code for studying circuit and cell-type mechanisms of laminar oscillations in a biorealistic model of mouse primary visual cortex (V1).
 
+Code associated with the study by Herrera et al. (2026), "Circuit and cell-type mechanisms of the spectrolaminar motif of cortical oscillations" (preprint).
+
 The repository has two main folders: one builds, simulates and analyzes the V1
 network, and the other trains its synaptic weights.
 
@@ -82,8 +84,6 @@ accessed and downloaded from
 [Dropbox](https://www.dropbox.com/scl/fo/xzcmw1tnkh1kv3kvo4ma4/AAZv3zGDzned--6RMw8bSQQ?rlkey=tr4gkoy6lomha00qiqjrgmrra&st=5ekwfoer&dl=0).
 To run the analyses or figure notebooks, copy the downloaded folders into
 `biorealistic-mouse-v1-model/`.
-
----
 
 ## Main contributors
 
