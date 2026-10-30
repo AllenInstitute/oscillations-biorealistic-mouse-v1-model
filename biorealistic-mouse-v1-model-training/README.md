@@ -52,13 +52,18 @@ This model simulates a cortical column in mouse V1, processing visual inputs fro
 
 ### Installation
 
-1. Clone this repository:
+1. Clone the repository and move into this folder:
 ```bash
-git clone https://github.com/username/V1_GLIF_model.git
-cd V1_GLIF_model
+git clone https://github.com/AllenInstitute/oscillations-biorealistic-mouse-v1-model.git
+cd oscillations-biorealistic-mouse-v1-model/biorealistic-mouse-v1-model-training
 ```
 
-2. Install dependencies using pip:
+2. Create the conda environment:
+```bash
+conda env create -f environment.yml   # creates the tf215 environment
+conda activate tf215
+```
+   or install the dependencies using pip:
 ```bash
 pip install -r requirements.txt
 ```
@@ -191,9 +196,12 @@ Based on the Allen Institute models and experimental data of mouse V1:
 
 ## Contributors
 
-- Allen Institute for Brain Science
+- Allen Institute
 - Institute for Cross-Disciplinary Physics and Complex Systems (IFISC)
 
 ## License
 
-<!-- [Specify the license] -->
+This code is licensed under the BSD 3-Clause License of the
+oscillations-biorealistic-mouse-v1-model repository; see [LICENSE](../LICENSE).
+The reference data in `Neuropixels_data/` has its own license; see
+[Neuropixels_data/LICENSE](Neuropixels_data/LICENSE).

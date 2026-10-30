@@ -459,3 +459,8 @@ all-direction runs (`all8dir_10trials_checkpoint`, see below).
 * Shinya Ito
 * Darrell Haufler
 * Kael Dai
+
+## License
+
+This code is licensed under the BSD 3-Clause License of the
+oscillations-biorealistic-mouse-v1-model repository; see [LICENSE](../LICENSE).

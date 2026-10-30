@@ -82,3 +82,18 @@ accessed and downloaded from
 [Dropbox](https://www.dropbox.com/scl/fo/xzcmw1tnkh1kv3kvo4ma4/AAZv3zGDzned--6RMw8bSQQ?rlkey=tr4gkoy6lomha00qiqjrgmrra&st=5ekwfoer&dl=0).
 To run the analyses or figure notebooks, copy the downloaded folders into
 `biorealistic-mouse-v1-model/`.
+
+---
+
+## Main contributors
+
+* Beatriz Herrera
+* Shinya Ito
+* Javier Galvan
+* Darrell Haufler
+* Kael Dai
+
+## License
+
+This project is licensed under the BSD 3-Clause License (Copyright (c) 2026,
+Allen Institute). See the [LICENSE](LICENSE) file for details.
