@@ -11,7 +11,7 @@
 # Cores come from profiles/default/config.yaml (cores: 8). Add/override snakemake
 # flags by passing them through; they are inserted BEFORE the target so --config
 # stays last (see the --config arg-order note in README.md). Examples:
-#   conda activate new_v1
+#   conda activate osc-mouse-v1-model
 #   ./build_selected_variant_core_spikes.sh
 #   ./build_selected_variant_core_spikes.sh --cores 16
 #   ./build_selected_variant_core_spikes.sh --rerun-incomplete
@@ -44,7 +44,7 @@ VARIANTS=(
 )
 
 if ! command -v snakemake >/dev/null 2>&1; then
-    echo "ERROR: 'snakemake' not found on PATH. Activate the env first: conda activate new_v1" >&2
+    echo "ERROR: 'snakemake' not found on PATH. Activate the env first: conda activate osc-mouse-v1-model" >&2
     exit 1
 fi
 

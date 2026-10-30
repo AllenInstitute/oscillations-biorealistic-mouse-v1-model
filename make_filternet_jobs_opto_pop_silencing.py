@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 import argparse
 import pathlib
+from make_filternet_jobs_opto_layer_scilencing_L4 import get_silenced_node_ids
 
 _default_core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
 
@@ -64,7 +65,8 @@ def sbatch_boilerplate(file, logdir, config_counts, memory=32, jobs=1, threads=8
     file.write(
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/activate_custom_nest_sdk_develop.sh\n"
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/miniconda3/bin/activate new_v1\n"
-        "source /allen/programs/mindscope/workgroups/realistic-model/beatriz.herrera/miniconda3/bin/activate new_v1\n"
+        'source "$(conda info --base)/etc/profile.d/conda.sh"\n'
+        "conda activate osc-mouse-v1-model\n"
     )
     # file.write(
     #     "module use /allen/programs/braintv/workgroups/modelingsdk/modulefiles\n"
@@ -176,7 +178,11 @@ if __name__ == "__main__":
     parser.add_argument("--filternet", action="store_true", default=False)
     parser.add_argument("--network_folder", type=str, default="network")
     parser.add_argument("--perturb_pop", type=str, default="Sst")
-    parser.add_argument("--percentage", type=int, default=100)
+    parser.add_argument(
+        "--percentage", type=str, default="100",
+        help="Percent of the population to silence; used verbatim in folder names "
+             "(e.g. 100 -> 100perc, 75.0 -> 75.0perc).",
+    )
     parser.add_argument(
         "--network_option", type=str, default="checkpoint"
     )  # checkpoint | adjusted
@@ -186,6 +192,21 @@ if __name__ == "__main__":
              "input for main-simulation jobs. Ignored when --filternet is set. "
              f"Default: {_default_core_dir}"
     )
+    parser.add_argument(
+        "--dt", type=float, default=0.1,
+        help="Simulation time step (ms) for main-simulation configs; overrides the "
+             "run.dt of the base config (config_templates use 0.25). Default: 0.1"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=0,
+        help="Seed for drawing a new random subset of cells to silence for each config "
+             "when --percentage < 100. Ignored with --node_ids_file. Default: 0"
+    )
+    parser.add_argument(
+        "--node_ids_file", type=str, default=None,
+        help="JSON file with the exact cells to silence per config (key 'node_ids', one "
+             "list per config)."
+    )
     args = parser.parse_args()
 
     filternet_base = "$BASE_DIR" if args.filternet else args.core_dir
@@ -194,11 +215,15 @@ if __name__ == "__main__":
 
     # percentage_perturb = [100, 50, 25, 10]
 
-    v1_nodes = pd.read_csv("core/network/v1_node_types.csv", sep=" ")
+    network_dir = os.path.join(
+        args.basedir,
+        "network" if args.network_folder == "network" else f"network_{args.network_folder}",
+    )
+    v1_nodes = pd.read_csv(os.path.join(network_dir, "v1_node_types.csv"), sep=" ")
     perturb_pop_node_type_ids = v1_nodes.loc[
         v1_nodes["pop_name"].str.endswith(args.perturb_pop), "node_type_id"
     ].values
-    with h5py.File("core/network/v1_nodes.h5", "r") as f:
+    with h5py.File(os.path.join(network_dir, "v1_nodes.h5"), "r") as f:
         node_type_ids = f["/nodes/v1/node_type_id"][:]
         node_ids = f["/nodes/v1/node_id"][:]
 
@@ -267,6 +292,11 @@ if __name__ == "__main__":
     else:
         perturb_pop_name = args.perturb_pop
 
+    silenced_node_ids = get_silenced_node_ids(
+        perturb_pop_node_ids, args.percentage, len(angles) * len(trials),
+        seed=args.seed, node_ids_file=args.node_ids_file,
+    )
+
     for angle in angles:
         for trial in trials:
             filterdir_indv = f"{filternet_base}/filternet_8dir_10trials/angle{int(angle)}_trial{trial}"
@@ -285,6 +315,7 @@ if __name__ == "__main__":
             else:  # main job
                 js["manifest"]["$LGNINPUT_DIR"] = filterdir_indv
                 js["manifest"]["$OUTPUT_DIR"] = outdir_indv
+                js["run"]["dt"] = args.dt
                 config_name = configdir + f"/config_{config_counts}.json"
                 # if the config file contains background input, change the input file
                 if "$BKGINPUT_DIR" in js["manifest"].keys():
@@ -298,13 +329,7 @@ if __name__ == "__main__":
                         "node_set": {
                             "population": "v1",
                             "pop_name": perturb_pop_name,
-                            "node_ids": np.random.choice(
-                                perturb_pop_node_ids,
-                                size=int(
-                                    len(perturb_pop_node_ids) * args.percentage / 100
-                                ),
-                                replace=False,
-                            ).tolist(),
+                            "node_ids": silenced_node_ids[config_counts],
                         },
                         "amp": int(iclamp),
                         "delay": 10.0,

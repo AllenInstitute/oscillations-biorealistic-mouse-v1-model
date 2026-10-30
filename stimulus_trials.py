@@ -13,13 +13,18 @@ class ContrastStimulus:
     stim = ContrastStimulus()
     for angle, contrast, trial in stim:
         # do something with the angle, contrast
+
+    By default the 30 blank (contrast 0) trials are skipped, giving the 480
+    conditions used for the contrasts_* simulations. Pass include_blanks=True
+    to prepend them.
     """
 
-    def __init__(self):
+    def __init__(self, include_blanks=False):
         self.angles = np.linspace(0, 315, 8)
         self.contrasts = [0.05, 0.10, 0.20, 0.40, 0.60, 0.80]
         self.trials = range(10)
         self.blanks = 30
+        self.include_blanks = include_blanks
 
     def get_all_result_paths(self, basedir, network_option):
         path_list = []
@@ -38,7 +43,7 @@ class ContrastStimulus:
         self.contrast_idx = 0
         self.trial_idx = 0
         self.blank_idx = 0
-        self.blank_done = False
+        self.blank_done = not self.include_blanks
         return self
 
     def __next__(self):

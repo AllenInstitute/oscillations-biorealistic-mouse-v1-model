@@ -62,7 +62,8 @@ def sbatch_boilerplate(file, logdir, config_counts, memory=32, jobs=1, threads=8
     file.write(
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/activate_custom_nest_sdk_develop.sh\n"
         # "source /allen/programs/mindscope/workgroups/realistic-model/shinya.ito/miniconda3/bin/activate new_v1\n"
-        "source /allen/programs/mindscope/workgroups/realistic-model/beatriz.herrera/miniconda3/bin/activate new_v1\n"
+        'source "$(conda info --base)/etc/profile.d/conda.sh"\n'
+        "conda activate osc-mouse-v1-model\n"
     )
     # file.write(
     #     "module use /allen/programs/braintv/workgroups/modelingsdk/modulefiles\n"
@@ -189,6 +190,11 @@ if __name__ == "__main__":
              "input for main-simulation jobs. Ignored when --filternet is set. "
              f"Default: {_default_core_dir}"
     )
+    parser.add_argument(
+        "--dt", type=float, default=0.1,
+        help="Simulation time step (ms) for main-simulation configs; overrides the "
+             "run.dt of the base config (config_templates use 0.25). Default: 0.1"
+    )
     args = parser.parse_args()
 
     filternet_base = "$BASE_DIR" if args.filternet else args.core_dir
@@ -255,6 +261,7 @@ if __name__ == "__main__":
             else:  # main job
                 js["manifest"]["$LGNINPUT_DIR"] = filterdir_indv
                 js["manifest"]["$OUTPUT_DIR"] = outdir_indv
+                js["run"]["dt"] = args.dt
                 config_name = configdir + f"/config_{config_counts}.json"
                 # if the config file contains background input, change the input file
                 if "$BKGINPUT_DIR" in js["manifest"].keys():

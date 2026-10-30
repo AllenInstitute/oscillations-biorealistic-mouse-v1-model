@@ -8,6 +8,8 @@ import make_osi_jobs as moj
 import pathlib
 import stimulus_trials as st
 
+_default_core_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Making a cluster-ready contrast job files."
@@ -23,8 +25,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--network_option", type=str, default="plain", help="The network option."
     )
+    parser.add_argument(
+        "--core_dir", type=str, default=_default_core_dir,
+        help="Path to a core network whose filternet/bkg outputs will be reused as LGN "
+             "input for main-simulation jobs. Ignored when --filternet is set. "
+             f"Default: {_default_core_dir}"
+    )
 
+    parser.add_argument(
+        "--dt", type=float, default=0.1,
+        help="Simulation time step (ms) for main-simulation configs; overrides the "
+             "run.dt of the base config (config_templates use 0.25). Default: 0.1"
+    )
     args = parser.parse_args()
+
+    filternet_base = "$BASE_DIR" if args.filternet else args.core_dir
 
     if args.filternet:
         job_name = "contrasts"
@@ -54,7 +69,7 @@ if __name__ == "__main__":
     stim_iter = st.ContrastStimulus()
     config_counts = 0
     for angle, contrast, trial in stim_iter:
-        filterdir_indv = f"$BASE_DIR/filternet_contrasts/angle{int(angle)}_contrast{contrast}_trial{trial}"
+        filterdir_indv = f"{filternet_base}/filternet_contrasts/angle{int(angle)}_contrast{contrast}_trial{trial}"
         outdir_indv = (
             f"$BASE_DIR/{job_name}/angle{int(angle)}_contrast{contrast}_trial{trial}"
         )
@@ -73,6 +88,7 @@ if __name__ == "__main__":
         else:  # main job
             js["manifest"]["$LGNINPUT_DIR"] = filterdir_indv
             js["manifest"]["$OUTPUT_DIR"] = outdir_indv
+            js["run"]["dt"] = args.dt
             config_name = configdir + f"/config_{config_counts}.json"
 
             # change the edge file if not plain
@@ -90,7 +106,7 @@ if __name__ == "__main__":
 
             # if the config file contains background input, change the input file
             if "$BKGINPUT_DIR" in js["manifest"].keys():
-                bkgdir_indv = f"$BASE_DIR/bkg_contrasts/angle{int(angle)}_contrast{contrast}_trial{trial}"
+                bkgdir_indv = f"{filternet_base}/bkg_contrasts/angle{int(angle)}_contrast{contrast}_trial{trial}"
                 js["manifest"]["$BKGINPUT_DIR"] = bkgdir_indv
         config_counts += 1
 

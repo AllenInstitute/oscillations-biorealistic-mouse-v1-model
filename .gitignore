@@ -16,6 +16,7 @@ small*/*
 tiny*/*
 scaled_spont_lgn_5s/*
 core*/*
+core_*/*
 no_recurrent/*
 no_recurrent_full/*
 no_recurrent_base/*
@@ -57,3 +58,6 @@ weight_analysis*/
 box_*.png
 box_*.svg
 MODEL_VARIANTS_CHAT_EXPORT.md
+
+# dated backups of core_<variant> networks
+*_backups_*/

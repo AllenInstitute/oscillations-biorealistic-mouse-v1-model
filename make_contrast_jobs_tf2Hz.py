@@ -32,6 +32,11 @@ if __name__ == "__main__":
              f"Default: {_default_core_dir}"
     )
 
+    parser.add_argument(
+        "--dt", type=float, default=0.1,
+        help="Simulation time step (ms) for main-simulation configs; overrides the "
+             "run.dt of the base config (config_templates use 0.25). Default: 0.1"
+    )
     args = parser.parse_args()
 
     filternet_base = "$BASE_DIR" if args.filternet else args.core_dir
@@ -83,6 +88,7 @@ if __name__ == "__main__":
         else:  # main job
             js["manifest"]["$LGNINPUT_DIR"] = filterdir_indv
             js["manifest"]["$OUTPUT_DIR"] = outdir_indv
+            js["run"]["dt"] = args.dt
             config_name = configdir + f"/config_{config_counts}.json"
 
             # change the edge file if not plain

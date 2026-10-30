@@ -43,8 +43,13 @@ Create the conda environment (use [miniforge](https://github.com/conda-forge/min
 or any conda variant with `conda-forge` as the primary channel; `mamba` is faster):
 
 ```bash
-conda env create -f environment.yml -n <env_name>
+conda env create -f environment.yml   # creates the osc-mouse-v1-model environment
+conda activate osc-mouse-v1-model
 ```
+
+This single environment runs everything in this repository: network building
+(Snakemake), filternet and PointNet (NEST 3.8) simulations, the analysis scripts
+and the figure notebooks.
 
 ---
 
@@ -167,7 +172,7 @@ snakemake tf_props_L4-Sst2e-as-L6/basis_function_weights.csv \
 ### Building several variants sequentially (sweep script)
 
 ```bash
-conda activate new_v1
+conda activate osc-mouse-v1-model
 ./build_selected_variant_core_spikes.sh          # default core seeds (8 cores)
 ./build_selected_variant_core_spikes.sh --cores 16
 ./build_selected_variant_core_spikes.sh --rerun-incomplete
@@ -232,8 +237,12 @@ Job-generation scripts live in the model root and write SLURM batch scripts +
 per-trial JSON config files into `<network>/jobs/` and `<network>/configs/`.
 
 All scripts default `--core_dir` to `<model_root>/core` so that model variant
-networks reuse the filternet (LGN spike) outputs already computed for the baseline
-`core` network. Pass `--core_dir <path>` to override.
+networks reuse the filternet (LGN spike) and background (bkg) outputs already
+computed for the baseline `core` network. Pass `--core_dir <path>` to override.
+
+All main-simulation configs are written with `--dt 0.1` (ms) by default, which
+overrides the `run.dt` of the base config (`config_templates/` use 0.25). Every
+simulation in the paper, for the baseline and all model variants, used `dt = 0.1`.
 
 > **Note:** These scripts are run directly (not via Snakemake). Snakemake handles
 > network building and single-direction simulations; these scripts generate configs
@@ -251,6 +260,36 @@ python make_filternet_jobs.py core_L4-e2e-syn-as-L6 --network_option checkpoint 
 
 # Generate filternet configs (outputs to <network>/filternet_8dir_10trials/)
 python make_filternet_jobs.py core --filternet
+```
+
+### Contrast response
+
+```bash
+# Standard contrast sweep (-> contrasts_checkpoint; 8 dir x 6 contrasts x 10 trials = 480 configs)
+python make_contrast_jobs.py core --network_option checkpoint
+python make_contrast_jobs.py core --filternet
+```
+
+Blank (contrast 0) trials are skipped by default; see
+`stimulus_trials.ContrastStimulus(include_blanks=...)`.
+
+### Temporal frequency tuning
+
+```bash
+# -> temporal_f_checkpoint; 8 dir x 6 TFs (1, 2, 4, 8, 15, 30 Hz) x 10 trials
+python make_temporal_f_jobs.py core --network_option checkpoint
+python make_temporal_f_jobs.py core --filternet
+```
+
+### All 8 directions in one 30 s run (Fig. 1B raster)
+
+The LGN and background inputs are the 8 single-direction runs concatenated in
+time; build them first with `concat_dg_lgn_inputs.ipynb` and
+`concat_dg_bkg_inputs.ipynb`.
+
+```bash
+# -> all8dir_10trials_checkpoint (one config per trial)
+python make_dir_jobs_alldirs.py core --network_option checkpoint
 ```
 
 ### Contrast response — temporal frequency 2 Hz
@@ -297,6 +336,22 @@ python make_filternet_jobs_opto_layer_scilencing.py core --perturb_layer L1 L23 
 python make_filternet_jobs_opto_layer_scilencing_L4.py core --perturb_pop i4Sst
 ```
 
+For both population-silencing scripts, the silenced cells are drawn from
+`<basedir>/network/` (or `network_<network_folder>/`), and `--percentage` is
+used verbatim in folder names (e.g. `--percentage 75.0` -> `..._75.0perc_checkpoint`).
+
+Below 100 %, a different random subset of cells is silenced in each config
+(each angle × trial). The subsets are drawn with `--seed` (default 0), so
+rerunning a script gives the same cells. The published L4-only partial-silencing
+simulations predate the seed, so their exact cell lists are stored in
+`silencing_node_ids/` (one JSON per run, `node_ids[i]` = cells silenced in
+`config_<i>`). Pass one with `--node_ids_file` to reproduce a run exactly:
+
+```bash
+python make_filternet_jobs_opto_layer_scilencing_L4.py core --perturb_pop i4Pvalb --percentage 10 \
+    --node_ids_file silencing_node_ids/8dir_10trials_onlyL4_-2000_silencing_i4Pvalb_10perc_checkpoint.json
+```
+
 ---
 
 ## Completed simulations
@@ -315,7 +370,6 @@ All outputs live under `<model_dir>/core/` for each model variant directory.
 | Natural movie one | `natural_movie_one_10trials_checkpoint` |
 | Natural movie two | `natural_movie_two_10trials_checkpoint` |
 | Natural scenes | `natural_scenes_10trials_checkpoint` |
-| Square wave stimuli | `square_wave_10trials_checkpoint` |
 | L4 with L6 models | `8dir_10trials_L4_with_L6_models_checkpoint` |
 | Population silencing — per layer (i23/i4/i5/i6 × Pvalb/Sst/Vip, 100 %) | `8dir_10trials_-2000_silencing_<pop>_100perc_checkpoint` |
 | Population silencing — whole cortex (Pvalb/Sst/Vip, 100 %) | `8dir_10trials_-2000_silencing_{Pvalb,Sst,Vip}_100perc_checkpoint` |
@@ -357,34 +411,34 @@ weight perturbations ×2/×5/×10/×20 each with and without silencing.
 
 ## Analysis scripts
 
-All analysis scripts are located in `biorealistic-v1-model/` (the previous model
-directory) and operate on spike outputs from the simulations above.
+Each analysis script reads the spike outputs of `<net_name>` (default `core`;
+pass `--net_name core_<variant>` for a model variant) and writes per-population
+and per-layer MUA power spectra (`.csv` + `.pkl`) to
+`<net_name>/metrics/<folder>/`. The figure notebooks read those files.
 
-| Script | What it analyses |
-|---|---|
-| `analysis_memory_efficient.py` | Baseline drifting-grating MUA power spectrum |
-| `analysis_memory_efficient_-2000.py` | Layer-by-layer optogenetic silencing (−2000 pA) |
-| `analysis_memory_efficient_-2000_v2.py` | Same, revised version |
-| `analysis_memory_efficient_-2000_lgn2L6_pertb.py` | LGN→L6 weight perturbations + silencing |
-| `analysis_memory_efficient_silencing_inh_pop.py` | Inhibitory population silencing |
-| `analysis_memory_efficient_L4only_silence_inh.py` | L4-only inhibitory silencing |
-| `analysis_memory_efficient_gray_screen.py` | Spontaneous / gray-screen activity |
-| `analysis_memory_efficient_other_visual_stim.py` | Natural movies and natural scenes |
-| `analysis_memory_efficient_PSS.py` | Power spectral shift (PSS) metric |
-| `analysis_clean_PSS.py` | PSS analysis (cleaned version) |
-| `analysis_clean_PSS_allfreq.py` | PSS across all frequencies |
-| `analysis_mua_power_dg_allcontrasts.py` | MUA power × contrast |
-| `analysis_mua_power_dg_temporal_fs.py` | MUA power × temporal frequency |
-| `analysis_opto_memory_efficient.py` | Opto silencing combined analysis |
-| `analysis_ppc_mua_cross_layer.py` | Cross-layer PPC of band-limited MUA |
-| `analysis_ppc_per_neuron_cross_layer.py` | Per-neuron cross-layer PPC |
-| `analysis_lgn_unit_power_spectrum.py` | LGN unit power spectra |
-| `contrast_analysis.py` / `contrast_quantification.py` | Contrast response quantification |
-| `contrast_aggregated_plots.py` / `contrast_spike_aggregation.py` | Contrast response plots |
-| `calculate_odsi.py` / `calculate_odsi_opto_silencing.py` | OSI/DSI (baseline and silencing) |
-| `calculate_power_band_areas.py` | Gamma / alpha-beta band power |
-| `emd_analysis_comprehensive.py` | Earth mover's distance between conditions |
-| `run_ppc_analysis.py` | PPC analysis pipeline |
+| Script | Output folder (`<net_name>/metrics/`) | Used by |
+|---|---|---|
+| `analysis_dg_layer_power.py` | `dg_power` | `fig1C_dg_power.ipynb` |
+| `analysis_dg_contrasts_power.py` | `dg_contrasts_power` | `fig1_suppl_dg_power_contrasts.ipynb` |
+| `analysis_dg_temporal_f_power.py` | `dg_temporal_f_power` | `fig1_suppl_dg_power_temporal_fs.ipynb` |
+| `analysis_gray_screen_vs_dg_power.py` | `gray_screen_vs_dg_power` | `fig1_suppl_gs_power.ipynb` |
+| `analysis_lgn_unit_power.py` | `lgn_unit_power` | `fig1_suppl_lgn_unit_power_spectrum.ipynb` |
+| `emd_analysis_comprehensive.py` | `core/emd_analysis_output` | `fig1_suppl2_emd_summary_figures.ipynb` |
+| `analysis_natural_stim_power.py` | `other_visual_stim_power` | `fig2C_dg_power_naturalistic_stim_v2.ipynb` |
+| `analysis_dg_inh_pop_silencing_power.py` | `dg_inh_pop_silencing_power` | `fig3_dg_power_inh_pop_silencing.ipynb` |
+| `analysis_dg_layer_silencing_power.py` | `dg_layer_silencing_power` | `fig4_dg_power_layers_silencing.ipynb` |
+| `analysis_dg_L4_inh_silencing_power.py` | `dg_L4_inh_silencing_power` | `fig4_dg_power_layers_silencing.ipynb` |
+| `analysis_dg_L4L6model_silencing_power.py` | `dg_L4L6model_silencing_power` | `fig5_dg_power_net_pertb.ipynb` |
+| `analysis_dg_layer_silencing_power_L4_model_variants.py` | `dg_layer_silencing_power` (in `core_<variant>`) | `fig5_dg_power_net_pertb.ipynb` |
+| `analysis_dg_layer_silencing_power_L6_model_variants.py` | `dg_layer_silencing_power` (in `core_<variant>`) | `fig5_dg_power_net_pertb.ipynb` |
+
+`emd_analysis_comprehensive.py` is an empirical mode decomposition (EMD) of the
+L4 MUA with all other layers silenced (condition `L4`, 8 directions × 10 trials;
+see `emd_analysis_methods.md`).
+
+The raster notebooks (`fig1B`, `fig2CD`, `fig2_suppl`, `fig3A`, `fig4A`,
+`fig4_suppl`, `fig5_suppl`) read spike outputs directly. `fig1B` uses the 30 s
+all-direction runs (`all8dir_10trials_checkpoint`, see below).
 
 ---
 

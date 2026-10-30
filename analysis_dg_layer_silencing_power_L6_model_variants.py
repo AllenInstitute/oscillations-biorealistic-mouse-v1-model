@@ -3,10 +3,11 @@
 Memory-efficient analysis script for drifting gratings — L6 model variants.
 Processes data in chunks to avoid memory issues.
 
-Silencing condition: L6 only (all other layers left active).
+Conditions: no perturbation, and isolated L6 (all other layers silenced). L6-as-L4 also
+runs the L6-with-L4-models network with and without the same silencing.
 
 Supported model variants:
-    L6-as-L4, L6-syn-as-L4-syn, L6-syn-as-L4-syn-PSP, L6-syn-as-L4-syn-v2
+    L6-as-L4, L6-syn-as-L4-syn
 
 Usage:
     python analysis_dg_layer_silencing_power_L6_model_variants.py --model_variant L6-as-L4
@@ -44,12 +45,20 @@ except ImportError as e:
 DRIFTING_ANGLES = ["theta0", "theta45", "theta90", "theta135", "theta180", "theta225", "theta270", "theta315"]
 
 PERTURB_DICT = {
-    # "no perturb": "",
+    "no perturb": "",
     # "L1": "_opto_layer_silencing_L23_L4_L5_L6_-2000",
     # "L2/3": "_opto_layer_silencing_L1_L4_L5_L6_-2000",
     # "L4": "_opto_layer_silencing_L1_L23_L5_L6_-2000",
     # "L5": "_opto_layer_silencing_L1_L23_L4_L6_-2000",
     "L6": "_opto_layer_silencing_L1_L23_L4_L5_-2000",
+}
+
+# Extra conditions simulated only for some variants (added to PERTURB_DICT in main())
+VARIANT_PERTURB_DICT = {
+    "L6-as-L4": {
+        "L4 models": "_L6_with_L4_models",  # L6 with L4 models
+        "L4 models: L6": "_L6_with_L4_models_opto_layer_silencing_L1_L23_L4_L5_-2000",
+    },
 }
 
 def get_config_range(drifting_angle):
@@ -465,7 +474,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
         Supported model variants:
-            L6-as-L4  L6-syn-as-L4-syn  L6-syn-as-L4-syn-PSP  L6-syn-as-L4-syn-v2
+            L6-as-L4  L6-syn-as-L4-syn
         """
     )
     parser.add_argument(
@@ -491,6 +500,8 @@ def main():
 
     if args.net_name is None:
         args.net_name = f"core_{args.model_variant}"
+
+    PERTURB_DICT.update(VARIANT_PERTURB_DICT.get(args.model_variant, {}))
 
     # Test mode
     if args.test:
