@@ -1,3 +1,21 @@
+._*
+~*
+*~
+.DS_Store
+Thumbs.db
+.snakemake
+biorealistic-v1-model*/
+*.err
+*.out
+eLife_Atle_paper/
+figs/
+h5browser
+V1_GLIF_model-model-variants/
+V1_GLIF_model/
+Billeh_model_SL_analysis/
+# Claude Code reproducibility checks of biorealistic-mouse-v1-model against the original runs
+claude_reproducibility_checks_2026-10-29/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -186,8 +204,17 @@ cython_debug/
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
 #  and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+!*.code-workspace
+*.code-workspace
 
+# Built Visual Studio Code Extensions
+*.vsix
 # Ruff stuff:
 .ruff_cache/
 
