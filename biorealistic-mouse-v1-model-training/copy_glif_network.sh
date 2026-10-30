@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Copy biorealistic-v1-model-latest/core_<suffix>/network into
-# V1_GLIF_model_tf_training/GLIF_network_<suffix>.
+# Copy biorealistic-mouse-v1-model/core_<suffix>/network into
+# biorealistic-mouse-v1-model-training/GLIF_network_<suffix>.
 #
 # Usage:
 #   ./copy_glif_network.sh                  # copy all core_* variants
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LATEST="$(dirname "$SCRIPT_DIR")/biorealistic-v1-model-latest"
+LATEST="$(dirname "$SCRIPT_DIR")/biorealistic-mouse-v1-model"
 
 usage() {
     echo "Usage: $0 [-s <network_suffix>] [-c]"

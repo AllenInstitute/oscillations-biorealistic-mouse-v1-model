@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy optimised *_<suffix>.h5 edge files produced by checkpoint_to_edges.py
-# from V1_GLIF_model_tf_training/GLIF_network*/network/ into
-# biorealistic-v1-model-latest/core*/network/.
+# from biorealistic-mouse-v1-model-training/GLIF_network*/network/ into
+# biorealistic-mouse-v1-model/core*/network/.
 #
 # Usage:
 #   ./copy_checkpoint_weights.sh                        # all GLIF_network_* variants
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LATEST="$(dirname "$SCRIPT_DIR")/biorealistic-v1-model-latest"
+LATEST="$(dirname "$SCRIPT_DIR")/biorealistic-mouse-v1-model"
 
 usage() {
     echo "Usage: $0 [-c] [-v <variant>] [--suffix <suffix>] [--force]"

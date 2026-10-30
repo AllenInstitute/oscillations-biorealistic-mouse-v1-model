@@ -5,15 +5,16 @@
 Thumbs.db
 .snakemake
 biorealistic-v1-model*/
-!/biorealistic-v1-model-latest/
 *.err
 *.out
 eLife_Atle_paper/
 figs/
 h5browser
-tf_training_v1_model/
+V1_GLIF_model-model-variants/
 V1_GLIF_model/
 Billeh_model_SL_analysis/
+# Claude Code reproducibility checks of biorealistic-mouse-v1-model against the original runs
+claude_reproducibility_checks_2026-10-29/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

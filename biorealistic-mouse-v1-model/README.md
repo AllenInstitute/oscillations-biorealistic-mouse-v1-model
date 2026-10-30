@@ -1,7 +1,7 @@
 # Oscillations paper — reproducing simulations and analysis
 
 A biorealistic model of mouse V1, used here to study gamma and alpha-beta
-oscillations and their laminar organization. This repository is based on
+oscillations and their laminar organization. This folder is based on
 [AllenInstitute/biorealistic-v1-model](https://github.com/AllenInstitute/biorealistic-v1-model)
 and has been modified for our study of network oscillations.
 
@@ -33,10 +33,11 @@ targets see [README_V1_model.md](README_V1_model.md).
 
 ## Installation
 
-First, clone the repository:
+First, clone the repository and move into this folder:
 
 ```bash
-git clone https://github.com/AllenInstitute/biorealistic-v1-model.git
+git clone https://github.com/AllenInstitute/oscillations-biorealistic-mouse-v1-model.git
+cd oscillations-biorealistic-mouse-v1-model/biorealistic-mouse-v1-model
 ```
 
 Create the conda environment (use [miniforge](https://github.com/conda-forge/miniforge)
@@ -50,6 +51,16 @@ conda activate osc-mouse-v1-model
 This single environment runs everything in this repository: network building
 (Snakemake), filternet and PointNet (NEST 3.8) simulations, the analysis scripts
 and the figure notebooks.
+
+---
+
+## Data
+
+The networks, simulation results, metrics and training checkpoints used for the
+paper are not tracked in git. They can be accessed and downloaded from
+[Dropbox](https://www.dropbox.com/scl/fo/xzcmw1tnkh1kv3kvo4ma4/AAZv3zGDzned--6RMw8bSQQ?rlkey=tr4gkoy6lomha00qiqjrgmrra&st=5ekwfoer&dl=0).
+To run the analyses or figure notebooks, copy the downloaded folders into this
+folder (`biorealistic-mouse-v1-model/`).
 
 ---
 
@@ -124,7 +135,7 @@ snakemake core/output_checkpoint/spikes.h5
 ```
 
 The `checkpoint` network option uses TF-trained synaptic weights from
-`V1_GLIF_model_tf_training/`. All oscillations-paper simulations use this option.
+`biorealistic-mouse-v1-model-training/`. All oscillations-paper simulations use this option.
 
 ---
 
